@@ -5,7 +5,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { configureNasStorage } from "@/utils/dataStorage";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Info } from "lucide-react";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 
 const NasConfig = ({ onClose }: { onClose: () => void }) => {
   const [nasEndpoints, setNasEndpoints] = useState<Array<{url: string, path: string}>>([]);
@@ -138,6 +144,29 @@ const NasConfig = ({ onClose }: { onClose: () => void }) => {
       >
         <Plus size={16} className="mr-2" /> Add Endpoint
       </Button>
+      
+      <Accordion type="single" collapsible className="w-full">
+        <AccordionItem value="deployment">
+          <AccordionTrigger className="text-sm text-blue-600">
+            <Info className="h-4 w-4 mr-2" />
+            How to deploy to NAS without sharing codebase
+          </AccordionTrigger>
+          <AccordionContent>
+            <div className="text-sm space-y-2 bg-gray-50 p-3 rounded-md">
+              <h3 className="font-medium">Deployment Instructions:</h3>
+              <ol className="list-decimal pl-5 space-y-1">
+                <li>Build the app using: <code className="bg-gray-200 px-1">npm run build</code></li>
+                <li>The build output will be in the <code className="bg-gray-200 px-1">dist</code> folder</li>
+                <li>Upload only the <code className="bg-gray-200 px-1">dist</code> folder contents to your NAS</li>
+                <li>Configure your NAS to serve these static files (using a web server like nginx or a simple HTTP server)</li>
+                <li>Create a <code className="bg-gray-200 px-1">/data</code> folder on your NAS to store the application data</li>
+                <li>The NAS should have CORS enabled to allow the frontend to access the API</li>
+              </ol>
+              <p className="mt-2 text-xs text-gray-500">Note: This only shares the compiled files, not the source code.</p>
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
       
       <div className="flex justify-end space-x-2 mt-4">
         <Button variant="outline" onClick={onClose}>Cancel</Button>
