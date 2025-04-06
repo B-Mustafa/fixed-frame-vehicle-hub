@@ -146,13 +146,13 @@ const Layout = () => {
                 <Button variant="outline">Tools</Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent className="bg-white p-1">
-                <DropdownMenuItem onClick={() => handleBackup()}>
+                <DropdownMenuItem onClick={handleBackup}>
                   Backup
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleRestoreOpen()}>
+                <DropdownMenuItem onClick={handleRestoreOpen}>
                   Restore
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleResetLastId()}>
+                <DropdownMenuItem onClick={handleResetLastId}>
                   Reset Last ID
                 </DropdownMenuItem>
                 <DropdownMenuItem>
@@ -181,7 +181,7 @@ const Layout = () => {
             </div>
           </div>
           <DialogFooter>
-            <Button onClick={() => downloadBackup()}>Download as File</Button>
+            <Button onClick={downloadBackup}>Download as File</Button>
             <Button onClick={() => setIsBackupDialogOpen(false)}>Close</Button>
           </DialogFooter>
         </DialogContent>
@@ -204,63 +204,13 @@ const Layout = () => {
             />
           </div>
           <DialogFooter>
-            <Button onClick={() => handleRestore()}>Restore</Button>
+            <Button onClick={handleRestore}>Restore</Button>
             <Button variant="outline" onClick={() => setIsRestoreDialogOpen(false)}>Cancel</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
   );
-  
-  function handleBackup() {
-    const data = createBackup();
-    setBackupData(data);
-    setIsBackupDialogOpen(true);
-  }
-
-  function handleRestoreOpen() {
-    setRestoreData("");
-    setIsRestoreDialogOpen(true);
-  }
-
-  function handleRestore() {
-    if (restoreData) {
-      const success = restoreBackup(restoreData);
-      if (success) {
-        toast({
-          title: "Restore successful",
-          description: "Your data has been restored successfully."
-        });
-        setIsRestoreDialogOpen(false);
-      } else {
-        toast({
-          title: "Restore failed",
-          description: "Invalid backup data format.",
-          variant: "destructive"
-        });
-      }
-    }
-  }
-
-  function handleResetLastId() {
-    const { lastSaleId, lastPurchaseId } = resetLastId();
-    toast({
-      title: "Reset Last IDs",
-      description: `Sales ID: ${lastSaleId}, Purchase ID: ${lastPurchaseId}`
-    });
-  }
-
-  function downloadBackup() {
-    const blob = new Blob([backupData], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `kesari-auto-backup-${new Date().toISOString().split("T")[0]}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }
 };
 
 export default Layout;
