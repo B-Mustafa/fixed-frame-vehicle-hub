@@ -1,7 +1,7 @@
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
-import { useNavigate, Link, Outlet } from "react-router-dom";
+import { useNavigate, Link, Outlet, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { 
@@ -18,14 +18,20 @@ import { Label } from "@/components/ui/label";
 const Layout = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const { toast } = useToast();
   const [isBackupDialogOpen, setIsBackupDialogOpen] = useState(false);
   const [isRestoreDialogOpen, setIsRestoreDialogOpen] = useState(false);
   const [backupData, setBackupData] = useState("");
   const [restoreData, setRestoreData] = useState("");
 
+  useEffect(() => {
+    if (!user) {
+      navigate("/login");
+    }
+  }, [user, navigate]);
+
   if (!user) {
-    navigate("/login");
     return null;
   }
 
@@ -108,7 +114,7 @@ const Layout = () => {
               <li>
                 <Link 
                   to="/" 
-                  className="flex items-center px-4 py-2 hover:bg-gray-100 rounded"
+                  className={`flex items-center px-4 py-2 hover:bg-gray-100 rounded ${location.pathname === '/' ? 'bg-gray-100' : ''}`}
                 >
                   <img src="/lovable-uploads/a042c22e-13d4-4780-bbb5-108d2637b91e.png" alt="Sales" className="w-10 h-8 mr-2" />
                   <span>Sales</span>
@@ -117,7 +123,7 @@ const Layout = () => {
               <li>
                 <Link 
                   to="/purchase" 
-                  className="flex items-center px-4 py-2 hover:bg-gray-100 rounded"
+                  className={`flex items-center px-4 py-2 hover:bg-gray-100 rounded ${location.pathname === '/purchase' ? 'bg-gray-100' : ''}`}
                 >
                   <img src="/lovable-uploads/a042c22e-13d4-4780-bbb5-108d2637b91e.png" alt="Purchase" className="w-10 h-8 mr-2" />
                   <span>Purchase</span>
@@ -126,7 +132,7 @@ const Layout = () => {
               <li>
                 <Link 
                   to="/due-list" 
-                  className="flex items-center px-4 py-2 hover:bg-gray-100 rounded"
+                  className={`flex items-center px-4 py-2 hover:bg-gray-100 rounded ${location.pathname === '/due-list' ? 'bg-gray-100' : ''}`}
                 >
                   <img src="/lovable-uploads/a042c22e-13d4-4780-bbb5-108d2637b91e.png" alt="Due List" className="w-10 h-8 mr-2" />
                   <span>Due List</span>
@@ -140,13 +146,13 @@ const Layout = () => {
                 <Button variant="outline">Tools</Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent className="bg-white p-1">
-                <DropdownMenuItem onClick={handleBackup}>
+                <DropdownMenuItem onClick={() => handleBackup()}>
                   Backup
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleRestoreOpen}>
+                <DropdownMenuItem onClick={() => handleRestoreOpen()}>
                   Restore
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleResetLastId}>
+                <DropdownMenuItem onClick={() => handleResetLastId()}>
                   Reset Last ID
                 </DropdownMenuItem>
                 <DropdownMenuItem>
@@ -158,7 +164,7 @@ const Layout = () => {
         </div>
       </header>
 
-      <main className="flex-1 overflow-hidden">
+      <main className="flex-1 overflow-auto">
         <Outlet />
       </main>
 
@@ -175,7 +181,7 @@ const Layout = () => {
             </div>
           </div>
           <DialogFooter>
-            <Button onClick={downloadBackup}>Download as File</Button>
+            <Button onClick={() => downloadBackup()}>Download as File</Button>
             <Button onClick={() => setIsBackupDialogOpen(false)}>Close</Button>
           </DialogFooter>
         </DialogContent>
@@ -198,13 +204,63 @@ const Layout = () => {
             />
           </div>
           <DialogFooter>
-            <Button onClick={handleRestore}>Restore</Button>
+            <Button onClick={() => handleRestore()}>Restore</Button>
             <Button variant="outline" onClick={() => setIsRestoreDialogOpen(false)}>Cancel</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
   );
+  
+  function handleBackup() {
+    const data = createBackup();
+    setBackupData(data);
+    setIsBackupDialogOpen(true);
+  }
+
+  function handleRestoreOpen() {
+    setRestoreData("");
+    setIsRestoreDialogOpen(true);
+  }
+
+  function handleRestore() {
+    if (restoreData) {
+      const success = restoreBackup(restoreData);
+      if (success) {
+        toast({
+          title: "Restore successful",
+          description: "Your data has been restored successfully."
+        });
+        setIsRestoreDialogOpen(false);
+      } else {
+        toast({
+          title: "Restore failed",
+          description: "Invalid backup data format.",
+          variant: "destructive"
+        });
+      }
+    }
+  }
+
+  function handleResetLastId() {
+    const { lastSaleId, lastPurchaseId } = resetLastId();
+    toast({
+      title: "Reset Last IDs",
+      description: `Sales ID: ${lastSaleId}, Purchase ID: ${lastPurchaseId}`
+    });
+  }
+
+  function downloadBackup() {
+    const blob = new Blob([backupData], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `kesari-auto-backup-${new Date().toISOString().split("T")[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
 };
 
 export default Layout;
