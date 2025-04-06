@@ -19,10 +19,23 @@ const DueList = () => {
 
   // Load due payments on component mount
   useEffect(() => {
-    const loadedDuePayments = getDuePayments();
-    setDuePayments(loadedDuePayments);
-    setFilteredPayments(loadedDuePayments);
-  }, []);
+    const fetchDuePayments = async () => {
+      try {
+        const loadedDuePayments = await getDuePayments();
+        setDuePayments(loadedDuePayments);
+        setFilteredPayments(loadedDuePayments);
+      } catch (error) {
+        console.error("Error loading due payments:", error);
+        toast({
+          title: "Error",
+          description: "Failed to load due payments",
+          variant: "destructive"
+        });
+      }
+    };
+    
+    fetchDuePayments();
+  }, [toast]);
 
   // Filter dues when filter or search query changes
   useEffect(() => {
@@ -58,7 +71,7 @@ const DueList = () => {
     setPaymentAmount(payment.dueAmount);
   };
 
-  const handlePayment = () => {
+  const handlePayment = async () => {
     if (!selectedDue) return;
     
     if (paymentAmount <= 0) {
@@ -73,27 +86,36 @@ const DueList = () => {
     const updatedStatus = paymentAmount >= selectedDue.dueAmount ? "paid" : "partial";
     const remaining = Math.max(0, selectedDue.dueAmount - paymentAmount);
     
-    const updatedPayment = updateDuePayment(selectedDue.id, {
-      status: updatedStatus,
-      dueAmount: remaining,
-      lastPaid: {
-        date: paymentDate,
-        amount: paymentAmount
+    try {
+      const updatedPayment = await updateDuePayment(selectedDue.id, {
+        status: updatedStatus,
+        dueAmount: remaining,
+        lastPaid: {
+          date: paymentDate,
+          amount: paymentAmount
+        }
+      });
+      
+      if (updatedPayment) {
+        // Update the due payments list
+        const updated = duePayments.map(p => 
+          p.id === updatedPayment.id ? updatedPayment : p
+        );
+        
+        setDuePayments(updated);
+        setSelectedDue(updatedPayment);
+        
+        toast({
+          title: "Payment Recorded",
+          description: `Payment of ${paymentAmount} recorded successfully.`
+        });
       }
-    });
-    
-    if (updatedPayment) {
-      // Update the due payments list
-      const updated = duePayments.map(p => 
-        p.id === updatedPayment.id ? updatedPayment : p
-      );
-      
-      setDuePayments(updated);
-      setSelectedDue(updatedPayment);
-      
+    } catch (error) {
+      console.error("Error updating payment:", error);
       toast({
-        title: "Payment Recorded",
-        description: `Payment of ${paymentAmount} recorded successfully.`
+        title: "Error",
+        description: "Failed to record payment",
+        variant: "destructive"
       });
     }
   };

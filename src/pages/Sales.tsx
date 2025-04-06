@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -49,13 +48,27 @@ const Sales = () => {
 
   // Load sales on component mount
   useEffect(() => {
-    const loadedSales = getSales();
-    setSales(loadedSales);
-    if (loadedSales.length > 0) {
-      setCurrentSale(loadedSales[0]);
-      setCurrentIndex(0);
-    }
-  }, []);
+    const fetchSales = async () => {
+      try {
+        const loadedSales = await getSales();
+        setSales(loadedSales);
+        if (loadedSales.length > 0) {
+          setCurrentSale(loadedSales[0]);
+          setCurrentIndex(0);
+          setPhotoPreview(loadedSales[0].photoUrl || null);
+        }
+      } catch (error) {
+        console.error("Error loading sales:", error);
+        toast({
+          title: "Error",
+          description: "Failed to load sales",
+          variant: "destructive"
+        });
+      }
+    };
+    
+    fetchSales();
+  }, [toast]);
 
   // Calculate totals whenever form changes
   useEffect(() => {
@@ -132,7 +145,7 @@ const Sales = () => {
     }
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!currentSale.party || !currentSale.vehicleNo || !currentSale.model) {
       toast({
         title: "Error",
@@ -142,30 +155,39 @@ const Sales = () => {
       return;
     }
 
-    let updatedSales = [...sales];
-    
-    if (currentSale.id) {
-      // Update existing
-      const updatedSale = updateSale(currentSale as VehicleSale);
-      const index = updatedSales.findIndex(s => s.id === updatedSale.id);
-      updatedSales[index] = updatedSale;
+    try {
+      let updatedSales = [...sales];
+      
+      if (currentSale.id) {
+        // Update existing
+        const updatedSale = await updateSale(currentSale as VehicleSale);
+        const index = updatedSales.findIndex(s => s.id === updatedSale.id);
+        updatedSales[index] = updatedSale;
+        toast({
+          title: "Sale Updated",
+          description: `Sale for ${updatedSale.party} has been updated.`
+        });
+      } else {
+        // Add new
+        const newSale = await addSale(currentSale);
+        updatedSales.push(newSale);
+        setCurrentSale(newSale);
+        setCurrentIndex(updatedSales.length - 1);
+        toast({
+          title: "Sale Added",
+          description: `New sale for ${newSale.party} has been added.`
+        });
+      }
+      
+      setSales(updatedSales);
+    } catch (error) {
+      console.error("Error saving sale:", error);
       toast({
-        title: "Sale Updated",
-        description: `Sale for ${updatedSale.party} has been updated.`
-      });
-    } else {
-      // Add new
-      const newSale = addSale(currentSale);
-      updatedSales.push(newSale);
-      setCurrentSale(newSale);
-      setCurrentIndex(updatedSales.length - 1);
-      toast({
-        title: "Sale Added",
-        description: `New sale for ${newSale.party} has been added.`
+        title: "Error",
+        description: "Failed to save sale",
+        variant: "destructive"
       });
     }
-    
-    setSales(updatedSales);
   };
 
   const handleNew = () => {
@@ -178,26 +200,36 @@ const Sales = () => {
     setPhotoPreview(null);
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!currentSale.id) return;
     
     if (window.confirm("Are you sure you want to delete this sale?")) {
-      const deleted = deleteSale(currentSale.id);
-      
-      if (deleted) {
-        const updatedSales = sales.filter(s => s.id !== currentSale.id);
-        setSales(updatedSales);
+      try {
+        const deleted = await deleteSale(currentSale.id);
         
-        if (updatedSales.length > 0) {
-          setCurrentSale(updatedSales[0]);
-          setCurrentIndex(0);
-        } else {
-          handleNew();
+        if (deleted) {
+          const updatedSales = sales.filter(s => s.id !== currentSale.id);
+          setSales(updatedSales);
+          
+          if (updatedSales.length > 0) {
+            setCurrentSale(updatedSales[0]);
+            setCurrentIndex(0);
+            setPhotoPreview(updatedSales[0].photoUrl || null);
+          } else {
+            handleNew();
+          }
+          
+          toast({
+            title: "Sale Deleted",
+            description: "The sale has been deleted successfully."
+          });
         }
-        
+      } catch (error) {
+        console.error("Error deleting sale:", error);
         toast({
-          title: "Sale Deleted",
-          description: "The sale has been deleted successfully."
+          title: "Error",
+          description: "Failed to delete sale",
+          variant: "destructive"
         });
       }
     }

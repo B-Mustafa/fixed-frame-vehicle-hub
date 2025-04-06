@@ -30,14 +30,27 @@ const Purchase = () => {
 
   // Load purchases on component mount
   useEffect(() => {
-    const loadedPurchases = getPurchases();
-    setPurchases(loadedPurchases);
-    if (loadedPurchases.length > 0) {
-      setCurrentPurchase(loadedPurchases[0]);
-      setCurrentIndex(0);
-      setPhotoPreview(loadedPurchases[0].photoUrl || null);
-    }
-  }, []);
+    const fetchPurchases = async () => {
+      try {
+        const loadedPurchases = await getPurchases();
+        setPurchases(loadedPurchases);
+        if (loadedPurchases.length > 0) {
+          setCurrentPurchase(loadedPurchases[0]);
+          setCurrentIndex(0);
+          setPhotoPreview(loadedPurchases[0].photoUrl || null);
+        }
+      } catch (error) {
+        console.error("Error loading purchases:", error);
+        toast({
+          title: "Error",
+          description: "Failed to load purchases",
+          variant: "destructive"
+        });
+      }
+    };
+    
+    fetchPurchases();
+  }, [toast]);
 
   // Calculate total whenever form changes
   useEffect(() => {
@@ -83,7 +96,7 @@ const Purchase = () => {
     }
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!currentPurchase.party || !currentPurchase.vehicleNo || !currentPurchase.model) {
       toast({
         title: "Error",
@@ -93,30 +106,39 @@ const Purchase = () => {
       return;
     }
 
-    let updatedPurchases = [...purchases];
-    
-    if (currentPurchase.id) {
-      // Update existing
-      const updatedPurchase = updatePurchase(currentPurchase as VehiclePurchase);
-      const index = updatedPurchases.findIndex(p => p.id === updatedPurchase.id);
-      updatedPurchases[index] = updatedPurchase;
+    try {
+      let updatedPurchases = [...purchases];
+      
+      if (currentPurchase.id) {
+        // Update existing
+        const updatedPurchase = await updatePurchase(currentPurchase as VehiclePurchase);
+        const index = updatedPurchases.findIndex(p => p.id === updatedPurchase.id);
+        updatedPurchases[index] = updatedPurchase;
+        toast({
+          title: "Purchase Updated",
+          description: `Purchase from ${updatedPurchase.party} has been updated.`
+        });
+      } else {
+        // Add new
+        const newPurchase = await addPurchase(currentPurchase);
+        updatedPurchases.push(newPurchase);
+        setCurrentPurchase(newPurchase);
+        setCurrentIndex(updatedPurchases.length - 1);
+        toast({
+          title: "Purchase Added",
+          description: `New purchase from ${newPurchase.party} has been added.`
+        });
+      }
+      
+      setPurchases(updatedPurchases);
+    } catch (error) {
+      console.error("Error saving purchase:", error);
       toast({
-        title: "Purchase Updated",
-        description: `Purchase from ${updatedPurchase.party} has been updated.`
-      });
-    } else {
-      // Add new
-      const newPurchase = addPurchase(currentPurchase);
-      updatedPurchases.push(newPurchase);
-      setCurrentPurchase(newPurchase);
-      setCurrentIndex(updatedPurchases.length - 1);
-      toast({
-        title: "Purchase Added",
-        description: `New purchase from ${newPurchase.party} has been added.`
+        title: "Error",
+        description: "Failed to save purchase",
+        variant: "destructive"
       });
     }
-    
-    setPurchases(updatedPurchases);
   };
 
   const handleNew = () => {
@@ -128,27 +150,36 @@ const Purchase = () => {
     setPhotoPreview(null);
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!currentPurchase.id) return;
     
     if (window.confirm("Are you sure you want to delete this purchase?")) {
-      const deleted = deletePurchase(currentPurchase.id);
-      
-      if (deleted) {
-        const updatedPurchases = purchases.filter(p => p.id !== currentPurchase.id);
-        setPurchases(updatedPurchases);
+      try {
+        const deleted = await deletePurchase(currentPurchase.id);
         
-        if (updatedPurchases.length > 0) {
-          setCurrentPurchase(updatedPurchases[0]);
-          setCurrentIndex(0);
-          setPhotoPreview(updatedPurchases[0].photoUrl || null);
-        } else {
-          handleNew();
+        if (deleted) {
+          const updatedPurchases = purchases.filter(p => p.id !== currentPurchase.id);
+          setPurchases(updatedPurchases);
+          
+          if (updatedPurchases.length > 0) {
+            setCurrentPurchase(updatedPurchases[0]);
+            setCurrentIndex(0);
+            setPhotoPreview(updatedPurchases[0].photoUrl || null);
+          } else {
+            handleNew();
+          }
+          
+          toast({
+            title: "Purchase Deleted",
+            description: "The purchase has been deleted successfully."
+          });
         }
-        
+      } catch (error) {
+        console.error("Error deleting purchase:", error);
         toast({
-          title: "Purchase Deleted",
-          description: "The purchase has been deleted successfully."
+          title: "Error",
+          description: "Failed to delete purchase",
+          variant: "destructive"
         });
       }
     }
