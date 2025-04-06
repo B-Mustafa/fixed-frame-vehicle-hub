@@ -1,4 +1,3 @@
-
 // Types for our data
 export interface VehicleSale {
   id: number;
@@ -68,44 +67,74 @@ export interface DuePayment {
 let nasConfig = {
   baseUrl: "http://localhost:3000/api", // Default to local development server
   dataPath: "/data", // API endpoint for data operations
+  endpoints: [] as Array<{url: string, path: string}>,
+  currentEndpointIndex: 0,
 };
 
-// Set the NAS server URL and path
-export const configureNasStorage = (baseUrl: string, dataPath = "/data") => {
+// Set the NAS server URL and path with multiple endpoints
+export const configureNasStorage = (baseUrl: string, dataPath = "/data", endpoints?: Array<{url: string, path: string}>) => {
   nasConfig.baseUrl = baseUrl;
   nasConfig.dataPath = dataPath;
-  console.log(`NAS storage configured: ${baseUrl}${dataPath}`);
+  
+  if (endpoints && endpoints.length > 0) {
+    nasConfig.endpoints = endpoints;
+    nasConfig.currentEndpointIndex = 0; // Reset to primary endpoint
+  } else {
+    // Single endpoint configuration
+    nasConfig.endpoints = [{ url: baseUrl, path: dataPath }];
+  }
+  
+  console.log(`NAS storage configured: Primary endpoint ${baseUrl}${dataPath}, ${nasConfig.endpoints.length} endpoints total`);
 };
 
-// Helper function to make API requests to the NAS server
+// Helper function to make API requests to the NAS server with automatic failover
 const fetchFromNas = async (endpoint: string, method = "GET", data?: any) => {
-  try {
-    const url = `${nasConfig.baseUrl}${nasConfig.dataPath}${endpoint}`;
-    const options: RequestInit = {
-      method,
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    };
+  let lastError: Error | null = null;
+  
+  // Try each endpoint in order until one succeeds
+  for (let attempt = 0; attempt < nasConfig.endpoints.length; attempt++) {
+    const currentEndpointIndex = (nasConfig.currentEndpointIndex + attempt) % nasConfig.endpoints.length;
+    const currentEndpoint = nasConfig.endpoints[currentEndpointIndex];
     
-    if (data && (method === "POST" || method === "PUT")) {
-      options.body = JSON.stringify(data);
+    try {
+      const url = `${currentEndpoint.url}${currentEndpoint.path}${endpoint}`;
+      const options: RequestInit = {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      };
+      
+      if (data && (method === "POST" || method === "PUT")) {
+        options.body = JSON.stringify(data);
+      }
+      
+      const response = await fetch(url, options);
+      
+      if (!response.ok) {
+        throw new Error(`NAS API error: ${response.status} ${response.statusText}`);
+      }
+      
+      // If this endpoint worked, make it the new primary
+      if (currentEndpointIndex !== nasConfig.currentEndpointIndex) {
+        console.log(`Switching to NAS endpoint ${currentEndpointIndex} as new primary`);
+        nasConfig.currentEndpointIndex = currentEndpointIndex;
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.warn(`NAS endpoint ${currentEndpoint.url}${currentEndpoint.path} failed:`, error);
+      lastError = error as Error;
+      // Continue to the next endpoint
     }
-    
-    const response = await fetch(url, options);
-    
-    if (!response.ok) {
-      throw new Error(`NAS API error: ${response.status} ${response.statusText}`);
-    }
-    
-    return await response.json();
-  } catch (error) {
-    console.error("NAS storage error:", error);
-    
-    // Fallback to localStorage if NAS is not available
-    console.warn("Falling back to localStorage");
-    return null;
   }
+  
+  // All endpoints failed
+  console.error("All NAS endpoints failed:", lastError);
+  
+  // Fallback to localStorage
+  console.warn("Falling back to localStorage");
+  return null;
 };
 
 // Initialize storage with some sample data
