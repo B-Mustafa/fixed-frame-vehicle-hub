@@ -10,10 +10,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu";
-import { createBackup, restoreBackup, resetLastId } from "@/utils/dataStorage";
+import { createBackup, restoreBackup, resetLastId, configureNasStorage } from "@/utils/dataStorage";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import NasConfig from "./NasConfig";
 
 const Layout = () => {
   const { user, logout } = useAuth();
@@ -22,12 +23,19 @@ const Layout = () => {
   const { toast } = useToast();
   const [isBackupDialogOpen, setIsBackupDialogOpen] = useState(false);
   const [isRestoreDialogOpen, setIsRestoreDialogOpen] = useState(false);
+  const [isNasConfigOpen, setIsNasConfigOpen] = useState(false);
   const [backupData, setBackupData] = useState("");
   const [restoreData, setRestoreData] = useState("");
 
   useEffect(() => {
     if (!user) {
       navigate("/login");
+    }
+    // Load NAS configuration on startup if saved
+    const nasUrl = localStorage.getItem('nasUrl');
+    const nasPath = localStorage.getItem('nasPath');
+    if (nasUrl) {
+      configureNasStorage(nasUrl, nasPath || '/data');
     }
   }, [user, navigate]);
 
@@ -43,10 +51,18 @@ const Layout = () => {
     });
   };
 
-  const handleBackup = () => {
-    const data = createBackup();
-    setBackupData(data);
-    setIsBackupDialogOpen(true);
+  const handleBackup = async () => {
+    try {
+      const data = await createBackup();
+      setBackupData(data);
+      setIsBackupDialogOpen(true);
+    } catch (error) {
+      toast({
+        title: "Backup Error",
+        description: "Failed to create backup",
+        variant: "destructive"
+      });
+    }
   };
 
   const handleRestoreOpen = () => {
@@ -54,31 +70,51 @@ const Layout = () => {
     setIsRestoreDialogOpen(true);
   };
 
-  const handleRestore = () => {
+  const handleRestore = async () => {
     if (restoreData) {
-      const success = restoreBackup(restoreData);
-      if (success) {
+      try {
+        const success = await restoreBackup(restoreData);
+        if (success) {
+          toast({
+            title: "Restore successful",
+            description: "Your data has been restored successfully."
+          });
+          setIsRestoreDialogOpen(false);
+        } else {
+          toast({
+            title: "Restore failed",
+            description: "Invalid backup data format.",
+            variant: "destructive"
+          });
+        }
+      } catch (error) {
         toast({
-          title: "Restore successful",
-          description: "Your data has been restored successfully."
-        });
-        setIsRestoreDialogOpen(false);
-      } else {
-        toast({
-          title: "Restore failed",
-          description: "Invalid backup data format.",
+          title: "Restore Error",
+          description: "Failed to restore from backup",
           variant: "destructive"
         });
       }
     }
   };
 
-  const handleResetLastId = () => {
-    const { lastSaleId, lastPurchaseId } = resetLastId();
-    toast({
-      title: "Reset Last IDs",
-      description: `Sales ID: ${lastSaleId}, Purchase ID: ${lastPurchaseId}`
-    });
+  const handleResetLastId = async () => {
+    try {
+      const { lastSaleId, lastPurchaseId } = await resetLastId();
+      toast({
+        title: "Reset Last IDs",
+        description: `Sales ID: ${lastSaleId}, Purchase ID: ${lastPurchaseId}`
+      });
+    } catch (error) {
+      toast({
+        title: "Reset Error",
+        description: "Failed to reset IDs",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleNasConfig = () => {
+    setIsNasConfigOpen(true);
   };
 
   const downloadBackup = () => {
@@ -155,8 +191,8 @@ const Layout = () => {
                 <DropdownMenuItem onClick={handleResetLastId}>
                   Reset Last ID
                 </DropdownMenuItem>
-                <DropdownMenuItem>
-                  Option
+                <DropdownMenuItem onClick={handleNasConfig}>
+                  NAS Configuration
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -207,6 +243,13 @@ const Layout = () => {
             <Button onClick={handleRestore}>Restore</Button>
             <Button variant="outline" onClick={() => setIsRestoreDialogOpen(false)}>Cancel</Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      
+      {/* NAS Configuration Dialog */}
+      <Dialog open={isNasConfigOpen} onOpenChange={setIsNasConfigOpen}>
+        <DialogContent>
+          <NasConfig onClose={() => setIsNasConfigOpen(false)} />
         </DialogContent>
       </Dialog>
     </div>
