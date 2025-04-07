@@ -64,7 +64,7 @@ export interface DuePayment {
 }
 
 // Configuration for NAS storage
-let nasConfig = {
+const nasConfig = {
   baseUrl: "http://localhost:3000/api", // Default to local development server
   dataPath: "/data", // API endpoint for data operations
   endpoints: [] as Array<{url: string, path: string}>,

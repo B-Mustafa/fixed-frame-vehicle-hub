@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import NasConfig from "./NasConfig";
+import { Bike, BikeIcon, Factory, Instagram, InstagramIcon, LucideBike } from "lucide-react";
 
 const Layout = () => {
   const { user, logout } = useAuth();
@@ -152,7 +153,8 @@ const Layout = () => {
                   to="/" 
                   className={`flex items-center px-4 py-2 hover:bg-gray-100 rounded ${location.pathname === '/' ? 'bg-gray-100' : ''}`}
                 >
-                  <img src="/lovable-uploads/a042c22e-13d4-4780-bbb5-108d2637b91e.png" alt="Sales" className="w-10 h-8 mr-2" />
+                  {/* <img src="/imgs/a042c22e-13d4-4780-bbb5-108d2637b91e.png" alt="Sales" className="w-10 h-8 mr-2" /> */}
+                  <Bike className="w-5 h-5 mr-2" />
                   <span>Sales</span>
                 </Link>
               </li>
@@ -161,7 +163,8 @@ const Layout = () => {
                   to="/purchase" 
                   className={`flex items-center px-4 py-2 hover:bg-gray-100 rounded ${location.pathname === '/purchase' ? 'bg-gray-100' : ''}`}
                 >
-                  <img src="/lovable-uploads/a042c22e-13d4-4780-bbb5-108d2637b91e.png" alt="Purchase" className="w-10 h-8 mr-2" />
+                  {/* <img src="/imgs/a042c22e-13d4-4780-bbb5-108d2637b91e.png" alt="Purchase" className="w-10 h-8 mr-2" /> */}
+                  <BikeIcon className="w-5 h-5 mr-2" />
                   <span>Purchase</span>
                 </Link>
               </li>
@@ -170,7 +173,8 @@ const Layout = () => {
                   to="/due-list" 
                   className={`flex items-center px-4 py-2 hover:bg-gray-100 rounded ${location.pathname === '/due-list' ? 'bg-gray-100' : ''}`}
                 >
-                  <img src="/lovable-uploads/a042c22e-13d4-4780-bbb5-108d2637b91e.png" alt="Due List" className="w-10 h-8 mr-2" />
+                  {/* <img src="/imgs/a042c22e-13d4-4780-bbb5-108d2637b91e.png" alt="Due List" className="w-10 h-8 mr-2" /> */}
+                  <LucideBike className="w-5 h-5 mr-2" />
                   <span>Due List</span>
                 </Link>
               </li>
