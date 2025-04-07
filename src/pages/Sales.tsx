@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,6 +36,7 @@ const emptySale: Omit<VehicleSale, "id"> = {
   installments: Array(20).fill(0).map(() => ({
     date: "",
     amount: 0,
+    paid: 0,
     enabled: false
   }))
 };
