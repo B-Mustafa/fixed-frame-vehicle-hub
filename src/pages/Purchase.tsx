@@ -1,10 +1,12 @@
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { VehiclePurchase, getPurchases, addPurchase, updatePurchase, deletePurchase } from "@/utils/dataStorage";
 import { format } from "date-fns";
+import { Search, Printer } from "lucide-react";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 
 const emptyPurchase: Omit<VehiclePurchase, "id"> = {
   date: format(new Date(), "yyyy-MM-dd"),
@@ -25,8 +27,14 @@ const Purchase = () => {
   const [currentPurchase, setCurrentPurchase] = useState<VehiclePurchase | (Omit<VehiclePurchase, "id"> & { id?: number })>(emptyPurchase);
   const [purchases, setPurchases] = useState<VehiclePurchase[]>([]);
   const [currentIndex, setCurrentIndex] = useState(-1);
+  const [formBackgroundColor, setFormBackgroundColor] = useState("#e6f7ff"); // Default light blue
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchHistory, setSearchHistory] = useState<string[]>([]);
+  const [searchResults, setSearchResults] = useState<VehiclePurchase[]>([]);
+  const [showSearchResults, setShowSearchResults] = useState(false);
   const { toast } = useToast();
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const printRef = useRef<HTMLDivElement>(null);
 
   // Load purchases on component mount
   useEffect(() => {
@@ -64,6 +72,24 @@ const Purchase = () => {
     }
   }, [currentPurchase.price, currentPurchase.transportCost]);
 
+  // Handle keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'PageUp') {
+        e.preventDefault();
+        navigatePrev();
+      } else if (e.key === 'PageDown') {
+        e.preventDefault();
+        navigateNext();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [currentIndex, purchases.length]);
+
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value, type } = e.target;
     
@@ -72,6 +98,8 @@ const Purchase = () => {
         ...currentPurchase,
         [name]: value === '' ? 0 : parseFloat(value)
       });
+    } else if (name === 'formBackgroundColor') {
+      setFormBackgroundColor(value);
     } else {
       setCurrentPurchase({
         ...currentPurchase,
@@ -185,6 +213,132 @@ const Purchase = () => {
     }
   };
 
+  const handleSearch = () => {
+    if (!searchQuery.trim()) return;
+    
+    // Add to search history if not already present
+    if (!searchHistory.includes(searchQuery)) {
+      setSearchHistory(prev => [searchQuery, ...prev.slice(0, 9)]);
+    }
+    
+    const results = purchases.filter(purchase => 
+      purchase.party.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      purchase.vehicleNo.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      purchase.phone.includes(searchQuery)
+    );
+    
+    setSearchResults(results);
+    setShowSearchResults(results.length > 0);
+    
+    if (results.length > 0) {
+      const foundPurchase = results[0];
+      const purchaseIndex = purchases.findIndex(p => p.id === foundPurchase.id);
+      setCurrentPurchase(foundPurchase);
+      setCurrentIndex(purchaseIndex);
+      setPhotoPreview(foundPurchase.photoUrl || null);
+      toast({
+        title: "Search Results",
+        description: `Found ${results.length} matching records`
+      });
+    } else {
+      toast({
+        title: "No Results",
+        description: "No matching records found"
+      });
+    }
+  };
+
+  const handlePrint = () => {
+    const printContent = printRef.current;
+    if (!printContent) return;
+    
+    const originalContents = document.body.innerHTML;
+    const printStyles = `
+      <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        h2 { text-align: center; margin-bottom: 20px; }
+        .print-section { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .print-field { margin-bottom: 10px; }
+        .print-label { font-weight: bold; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        .photo { max-width: 200px; max-height: 200px; }
+      </style>
+    `;
+    
+    const printContents = `
+      <html>
+        <head>
+          <title>Purchase Details - ${currentPurchase.party}</title>
+          ${printStyles}
+        </head>
+        <body>
+          <h2>Purchase Record - ${currentPurchase.id || 'New'}</h2>
+          <div class="print-section">
+            <div>
+              <div class="print-field">
+                <span class="print-label">Date:</span> ${currentPurchase.date}
+              </div>
+              <div class="print-field">
+                <span class="print-label">Party:</span> ${currentPurchase.party}
+              </div>
+              <div class="print-field">
+                <span class="print-label">Address:</span> ${currentPurchase.address}
+              </div>
+              <div class="print-field">
+                <span class="print-label">Phone:</span> ${currentPurchase.phone}
+              </div>
+              <div class="print-field">
+                <span class="print-label">Model:</span> ${currentPurchase.model}
+              </div>
+              <div class="print-field">
+                <span class="print-label">Vehicle No:</span> ${currentPurchase.vehicleNo}
+              </div>
+              <div class="print-field">
+                <span class="print-label">Chassis:</span> ${currentPurchase.chassis}
+              </div>
+            </div>
+            <div>
+              ${photoPreview ? `<img src="${photoPreview}" alt="Vehicle" class="photo" />` : ''}
+            </div>
+          </div>
+          
+          <div class="print-field">
+            <span class="print-label">Price:</span> ${currentPurchase.price}
+          </div>
+          <div class="print-field">
+            <span class="print-label">Transport Cost:</span> ${currentPurchase.transportCost}
+          </div>
+          <div class="print-field">
+            <span class="print-label">Total Amount:</span> ${currentPurchase.total}
+          </div>
+          
+          <div class="print-field">
+            <span class="print-label">Remarks:</span> ${currentPurchase.remark}
+          </div>
+        </body>
+      </html>
+    `;
+    
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.open();
+      printWindow.document.write(printContents);
+      printWindow.document.close();
+      printWindow.focus();
+      setTimeout(() => {
+        printWindow.print();
+        printWindow.close();
+      }, 250);
+    } else {
+      // If popup is blocked, use the current window
+      document.body.innerHTML = printContents;
+      window.print();
+      document.body.innerHTML = originalContents;
+    }
+  };
+
   const navigateFirst = () => {
     if (purchases.length > 0) {
       setCurrentPurchase(purchases[0]);
@@ -219,64 +373,146 @@ const Purchase = () => {
 
   return (
     <div className="h-full p-4 bg-white">
-      {/* Navigation buttons */}
-      <div className="flex items-center space-x-2 mb-4">
-        <Button 
-          variant="outline" 
-          onClick={navigateFirst}
-          disabled={purchases.length === 0 || currentIndex === 0}
-        >
-          First
-        </Button>
-        <Button 
-          variant="outline" 
-          onClick={navigatePrev}
-          disabled={purchases.length === 0 || currentIndex <= 0}
-        >
-          Prev
-        </Button>
-        <Button 
-          variant="outline" 
-          onClick={navigateNext}
-          disabled={purchases.length === 0 || currentIndex >= purchases.length - 1}
-        >
-          Next
-        </Button>
-        <Button 
-          variant="outline" 
-          onClick={navigateLast}
-          disabled={purchases.length === 0 || currentIndex === purchases.length - 1}
-        >
-          Last
-        </Button>
-        <Button 
-          variant="outline" 
-          onClick={handleNew}
-        >
-          Add
-        </Button>
-        <Button 
-          variant="outline" 
-          onClick={handleDelete}
-          disabled={!currentPurchase.id}
-        >
-          Del
-        </Button>
-        <Button 
-          variant="outline" 
-          onClick={handleSave}
-        >
-          Save
-        </Button>
-        <Button variant="outline">Notes</Button>
-        <Button variant="outline">Print</Button>
-        <Button variant="outline">Exit</Button>
+      {/* Navigation buttons and search */}
+      <div className="flex flex-wrap items-center justify-between mb-4 gap-2">
+        <div className="flex items-center space-x-2">
+          <Button 
+            variant="outline" 
+            onClick={navigateFirst}
+            disabled={purchases.length === 0 || currentIndex === 0}
+          >
+            First
+          </Button>
+          <Button 
+            variant="outline" 
+            onClick={navigatePrev}
+            disabled={purchases.length === 0 || currentIndex <= 0}
+          >
+            Prev
+          </Button>
+          <Button 
+            variant="outline" 
+            onClick={navigateNext}
+            disabled={purchases.length === 0 || currentIndex >= purchases.length - 1}
+          >
+            Next
+          </Button>
+          <Button 
+            variant="outline" 
+            onClick={navigateLast}
+            disabled={purchases.length === 0 || currentIndex === purchases.length - 1}
+          >
+            Last
+          </Button>
+          <Button 
+            variant="outline" 
+            onClick={handleNew}
+          >
+            Add
+          </Button>
+          <Button 
+            variant="outline" 
+            onClick={handleDelete}
+            disabled={!currentPurchase.id}
+          >
+            Del
+          </Button>
+          <Button 
+            variant="outline" 
+            onClick={handleSave}
+          >
+            Save
+          </Button>
+          <Button 
+            variant="outline" 
+            onClick={handlePrint}
+          >
+            <Printer className="h-4 w-4 mr-2" /> Print
+          </Button>
+        </div>
+
+        <div className="flex items-center space-x-2">
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" className="h-9 w-9 p-0">
+                <span className="sr-only">Color picker</span>
+                <div 
+                  className="h-5 w-5 rounded-full border border-gray-300"
+                  style={{ backgroundColor: formBackgroundColor }}
+                />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-64">
+              <div className="space-y-2">
+                <h4 className="font-medium text-sm">Form Background Color</h4>
+                <Input 
+                  type="color" 
+                  value={formBackgroundColor} 
+                  name="formBackgroundColor"
+                  onChange={handleInputChange}
+                  className="h-8 w-full"
+                />
+              </div>
+            </PopoverContent>
+          </Popover>
+          
+          <div className="flex relative">
+            <Popover open={showSearchResults && searchResults.length > 0} onOpenChange={setShowSearchResults}>
+              <div className="flex">
+                <Input
+                  placeholder="Search by party, vehicle no, phone"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="min-w-[270px]"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      handleSearch();
+                    }
+                  }}
+                />
+                <Button 
+                  variant="outline" 
+                  onClick={handleSearch}
+                  className="ml-1"
+                >
+                  <Search className="h-4 w-4" />
+                </Button>
+              </div>
+              <PopoverContent className="w-[300px] p-0">
+                <div className="max-h-[200px] overflow-y-auto py-2">
+                  <h4 className="px-3 py-1 text-sm font-medium">Search History</h4>
+                  {searchHistory.length > 0 ? (
+                    <div className="mt-1">
+                      {searchHistory.map((query, index) => (
+                        <button
+                          key={index}
+                          className="flex w-full px-3 py-2 text-sm hover:bg-gray-100"
+                          onClick={() => {
+                            setSearchQuery(query);
+                            handleSearch();
+                          }}
+                        >
+                          {query}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="px-3 py-2 text-sm text-gray-500">No recent searches</div>
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
+          </div>
+        </div>
       </div>
 
       {/* Form */}
-      <div className="grid grid-cols-4 gap-4 h-[calc(100vh-180px)]">
+      <div className="grid grid-cols-4 gap-4 h-[calc(100vh-180px)]" ref={printRef}>
         {/* Left column */}
-        <div className="col-span-3 bg-app-blue p-4 rounded">
+        <div 
+          className="col-span-3 p-4 rounded"
+          style={{ backgroundColor: formBackgroundColor }}
+        >
           {/* Transaction Details */}
           <div className="mb-4">
             <h3 className="vehicle-form-label mb-2">Transaction Details</h3>
@@ -424,7 +660,10 @@ const Purchase = () => {
         </div>
 
         {/* Right column */}
-        <div className="col-span-1 bg-app-blue p-4 rounded">
+        <div 
+          className="col-span-1 p-4 rounded"
+          style={{ backgroundColor: formBackgroundColor }}
+        >
           {/* Photo */}
           <div className="mb-4">
             <h3 className="vehicle-form-label mb-2">Photo:</h3>
