@@ -1,4 +1,3 @@
-
 import * as XLSX from 'xlsx';
 import { VehicleSale, VehiclePurchase, DuePayment } from './dataStorage';
 
@@ -110,4 +109,3 @@ export const createFullBackupExcel = (
     throw error;
   }
 };
-

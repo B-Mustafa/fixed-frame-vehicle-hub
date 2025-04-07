@@ -1,4 +1,3 @@
-
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import { VehicleSale, VehiclePurchase, DuePayment } from './dataStorage';
 
@@ -147,4 +146,3 @@ export const getHighestIds = async (): Promise<{ lastSaleId: number; lastPurchas
   
   return { lastSaleId, lastPurchaseId };
 };
-

@@ -54,7 +54,19 @@ const Layout = () => {
   const handleBackup = async () => {
     try {
       const data = await createBackup();
-      setBackupData(data);
+      // Fix TypeScript error by handling the string | Blob correctly
+      if (typeof data === 'string') {
+        setBackupData(data);
+      } else {
+        // If it's a Blob, convert it to a string
+        const reader = new FileReader();
+        reader.onload = () => {
+          if (reader.result && typeof reader.result === 'string') {
+            setBackupData(reader.result);
+          }
+        };
+        reader.readAsText(data);
+      }
       setIsBackupDialogOpen(true);
     } catch (error) {
       toast({

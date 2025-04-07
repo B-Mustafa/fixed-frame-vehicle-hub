@@ -764,9 +764,10 @@ export const restoreBackup = async (backupData: string | File): Promise<boolean>
         const duePayments = duePaymentsSheet ? XLSX.utils.sheet_to_json(duePaymentsSheet) : [];
         const metadata = metadataSheet ? XLSX.utils.sheet_to_json(metadataSheet) : [];
         
-        // Extract metadata values
-        const lastSaleId = metadata.find((item: any) => item.key === 'lastSaleId')?.value || "0";
-        const lastPurchaseId = metadata.find((item: any) => item.key === 'lastPurchaseId')?.value || "0";
+        // Extract metadata values - fix the type error by using optional chaining and type assertion
+        const metadataItems = metadata as Array<{key: string, value: string}>;
+        const lastSaleId = metadataItems.find(item => item.key === 'lastSaleId')?.value || "0";
+        const lastPurchaseId = metadataItems.find(item => item.key === 'lastPurchaseId')?.value || "0";
         
         data = {
           vehicleSales: sales,
