@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -5,7 +6,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { VehicleSale, getSales, addSale, updateSale, deleteSale } from "@/utils/dataStorage";
 import { format, parse } from "date-fns";
-import { Search, Printer, ChevronUp, ChevronDown } from "lucide-react";
+import { Search, Printer, ChevronUp, ChevronDown, X, History } from "lucide-react";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 
 const emptySale: Omit<VehicleSale, "id"> = {
@@ -41,13 +42,16 @@ const emptySale: Omit<VehicleSale, "id"> = {
   }))
 };
 
+// Key for storing search history in localStorage
+const SEARCH_HISTORY_KEY = 'salesSearchHistory';
+
 const Sales = () => {
   const [currentSale, setCurrentSale] = useState<VehicleSale | (Omit<VehicleSale, "id"> & { id?: number })>(emptySale);
   const [sales, setSales] = useState<VehicleSale[]>([]);
   const [currentIndex, setCurrentIndex] = useState(-1);
   const [formBackgroundColor, setFormBackgroundColor] = useState("#e6f7ff"); // Default light blue
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchHistory, setSearchHistory] = useState<string[]>([]);
+  const [searchHistory, setSearchHistory] = useState<{query: string, timestamp: number}[]>([]);
   const [searchResults, setSearchResults] = useState<VehicleSale[]>([]);
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [currentSearchIndex, setCurrentSearchIndex] = useState(-1);
@@ -76,7 +80,27 @@ const Sales = () => {
       }
     };
     
+    // Load search history from localStorage
+    const loadSearchHistory = () => {
+      const savedHistory = localStorage.getItem(SEARCH_HISTORY_KEY);
+      if (savedHistory) {
+        const parsedHistory = JSON.parse(savedHistory) as {query: string, timestamp: number}[];
+        
+        // Filter out entries older than 24 hours
+        const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
+        const filteredHistory = parsedHistory.filter(item => item.timestamp >= oneDayAgo);
+        
+        // Save the filtered history back if items were removed
+        if (filteredHistory.length !== parsedHistory.length) {
+          localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(filteredHistory));
+        }
+        
+        setSearchHistory(filteredHistory);
+      }
+    };
+    
     fetchSales();
+    loadSearchHistory();
   }, [toast]);
 
   // Calculate totals whenever form changes
@@ -309,18 +333,61 @@ const Sales = () => {
     }
   };
 
+  const handleClearSearch = () => {
+    setSearchQuery("");
+    setSearchResults([]);
+    setShowSearchResults(false);
+    setCurrentSearchIndex(-1);
+  };
+
+  const addToSearchHistory = (query: string) => {
+    // Don't add empty queries
+    if (!query.trim()) return;
+    
+    // Create new history item with current timestamp
+    const newItem = { query, timestamp: Date.now() };
+    
+    // Check if query already exists
+    const existingIndex = searchHistory.findIndex(item => item.query.toLowerCase() === query.toLowerCase());
+    
+    let updatedHistory;
+    if (existingIndex >= 0) {
+      // Update timestamp of existing query
+      updatedHistory = [...searchHistory];
+      updatedHistory[existingIndex] = newItem;
+    } else {
+      // Add new query to history
+      updatedHistory = [newItem, ...searchHistory];
+    }
+    
+    // Limit history to 20 items
+    if (updatedHistory.length > 20) {
+      updatedHistory = updatedHistory.slice(0, 20);
+    }
+    
+    // Update state and localStorage
+    setSearchHistory(updatedHistory);
+    localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(updatedHistory));
+  };
+
   const handleSearch = () => {
     if (!searchQuery.trim()) return;
     
-    // Add to search history if not already present
-    if (!searchHistory.includes(searchQuery)) {
-      setSearchHistory(prev => [searchQuery, ...prev.slice(0, 9)]);
-    }
+    // Add to search history
+    addToSearchHistory(searchQuery);
     
+    // Improved search - match partial text in a case-insensitive way
+    const searchLower = searchQuery.toLowerCase();
     const results = sales.filter(sale => 
-      sale.party.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      sale.vehicleNo.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      sale.phone.includes(searchQuery)
+      sale.party.toLowerCase().includes(searchLower) ||
+      sale.vehicleNo.toLowerCase().includes(searchLower) ||
+      sale.phone.includes(searchLower) ||
+      sale.model.toLowerCase().includes(searchLower) ||
+      sale.chassis.toLowerCase().includes(searchLower) ||
+      sale.address.toLowerCase().includes(searchLower) ||
+      sale.remark.toLowerCase().includes(searchLower) ||
+      sale.witness.toLowerCase().includes(searchLower) ||
+      sale.witnessName2.toLowerCase().includes(searchLower)
     );
     
     setSearchResults(results);
@@ -603,18 +670,28 @@ const Sales = () => {
           
           <div className="flex relative">
             <Popover open={showSearchResults && searchResults.length > 0} onOpenChange={setShowSearchResults}>
-              <div className="flex">
-                <Input
-                  placeholder="Search by party, vehicle no, phone"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="min-w-[270px]"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      handleSearch();
-                    }
-                  }}
-                />
+              <div className="flex items-center">
+                <div className="relative flex w-full items-center">
+                  <Input
+                    placeholder="Search by party, vehicle no, phone..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="min-w-[270px] pr-8"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        handleSearch();
+                      }
+                    }}
+                  />
+                  {searchQuery && (
+                    <button 
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      onClick={handleClearSearch}
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
                 <Button 
                   variant="outline" 
                   onClick={handleSearch}
@@ -622,6 +699,66 @@ const Sales = () => {
                 >
                   <Search className="h-4 w-4" />
                 </Button>
+                
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="ml-1">
+                      <History className="h-4 w-4" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[300px] p-0">
+                    <div className="max-h-[300px] overflow-y-auto py-2">
+                      <div className="flex items-center justify-between px-3 py-1.5">
+                        <h4 className="text-sm font-medium">Search History</h4>
+                        <button 
+                          className="text-xs text-gray-500 hover:text-gray-900"
+                          onClick={() => {
+                            setSearchHistory([]);
+                            localStorage.removeItem(SEARCH_HISTORY_KEY);
+                          }}
+                        >
+                          Clear All
+                        </button>
+                      </div>
+                      {searchHistory.length > 0 ? (
+                        <div className="mt-1">
+                          {searchHistory.map((item, index) => (
+                            <div key={index} className="flex items-center justify-between px-3 py-2 hover:bg-gray-100">
+                              <button
+                                className="flex w-full text-left text-sm"
+                                onClick={() => {
+                                  setSearchQuery(item.query);
+                                  setShowSearchResults(false);
+                                  setTimeout(() => {
+                                    handleSearch();
+                                  }, 100);
+                                }}
+                              >
+                                <span className="flex items-center">
+                                  <History className="mr-2 h-3 w-3 text-gray-400" />
+                                  {item.query}
+                                </span>
+                              </button>
+                              <button
+                                className="ml-2 text-gray-400 hover:text-gray-600"
+                                onClick={() => {
+                                  const newHistory = searchHistory.filter((_, i) => i !== index);
+                                  setSearchHistory(newHistory);
+                                  localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(newHistory));
+                                }}
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="px-3 py-2 text-sm text-gray-500">No recent searches</div>
+                      )}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+                
                 {searchResults.length > 0 && (
                   <div className="flex items-center ml-2">
                     <Button 
@@ -649,25 +786,38 @@ const Sales = () => {
                 )}
               </div>
               <PopoverContent className="w-[300px] p-0">
-                <div className="max-h-[200px] overflow-y-auto py-2">
-                  <h4 className="px-3 py-1 text-sm font-medium">Search History</h4>
-                  {searchHistory.length > 0 ? (
+                <div className="max-h-[300px] overflow-y-auto py-2">
+                  <div className="flex items-center justify-between px-3 py-1">
+                    <h4 className="text-sm font-medium">Search Results ({searchResults.length})</h4>
+                  </div>
+                  {searchResults.length > 0 ? (
                     <div className="mt-1">
-                      {searchHistory.map((query, index) => (
+                      {searchResults.map((result, index) => (
                         <button
                           key={index}
-                          className="flex w-full px-3 py-2 text-sm hover:bg-gray-100"
+                          className={`flex w-full items-center px-3 py-2 text-sm ${
+                            index === currentSearchIndex ? 'bg-gray-100' : 'hover:bg-gray-100'
+                          }`}
                           onClick={() => {
-                            setSearchQuery(query);
-                            handleSearch();
+                            const resultIndex = sales.findIndex(s => s.id === result.id);
+                            setCurrentSale(result);
+                            setCurrentIndex(resultIndex);
+                            setCurrentSearchIndex(index);
+                            setPhotoPreview(result.photoUrl || null);
+                            setShowSearchResults(false);
                           }}
                         >
-                          {query}
+                          <div className="flex flex-col">
+                            <span className="font-medium">{result.party}</span>
+                            <span className="text-xs text-gray-500">
+                              {result.vehicleNo} • {result.model}
+                            </span>
+                          </div>
                         </button>
                       ))}
                     </div>
                   ) : (
-                    <div className="px-3 py-2 text-sm text-gray-500">No recent searches</div>
+                    <div className="px-3 py-2 text-sm text-gray-500">No matching records</div>
                   )}
                 </div>
               </PopoverContent>
