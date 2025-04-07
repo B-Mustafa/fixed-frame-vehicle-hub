@@ -1042,69 +1042,72 @@ const Sales = () => {
               </div>
               
               {/* More installment rows */}
-              {Array.from({ length: 14 }).map((_, idx) => (
-                <React.Fragment key={idx + 6}>
-                  {idx === 0 ? (
-                    <>
-                      {/* Additional rows for installments 7-20 */}
-                      <div className="col-span-2 p-1 flex items-center">
-                        <Checkbox 
-                          checked={currentSale.installments[idx + 6].enabled}
-                          onCheckedChange={(checked) => 
-                            handleInstallmentChange(idx + 6, 'enabled', checked)
-                          }
-                          className="mr-2"
-                        />
-                        <Input 
-                          type="date" 
-                          value={currentSale.installments[idx + 6].date}
-                          onChange={(e) => handleInstallmentChange(idx + 6, 'date', e.target.value)}
-                          disabled={!currentSale.installments[idx + 6].enabled}
-                          className="vehicle-input flex-1" 
-                        />
-                      </div>
-                      <div className="col-span-2 p-1">
-                        <Input 
-                          type="number" 
-                          value={currentSale.installments[idx + 6].amount}
-                          onChange={(e) => handleInstallmentChange(idx + 6, 'amount', e.target.value)}
-                          disabled={!currentSale.installments[idx + 6].enabled}
-                          className="vehicle-input" 
-                        />
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="col-span-2 p-1 flex items-center">
-                        <Checkbox 
-                          checked={currentSale.installments[idx + 6].enabled}
-                          onCheckedChange={(checked) => 
-                            handleInstallmentChange(idx + 6, 'enabled', checked)
-                          }
-                          className="mr-2"
-                        />
-                        <Input 
-                          type="date" 
-                          value={currentSale.installments[idx + 6].date}
-                          onChange={(e) => handleInstallmentChange(idx + 6, 'date', e.target.value)}
-                          disabled={!currentSale.installments[idx + 6].enabled}
-                          className="vehicle-input flex-1" 
-                        />
-                      </div>
-                      <div className="col-span-2 p-1">
-                        <Input 
-                          type="number" 
-                          value={currentSale.installments[idx + 6].amount}
-                          onChange={(e) => handleInstallmentChange(idx + 6, 'amount', e.target.value)}
-                          disabled={!currentSale.installments[idx + 6].enabled}
-                          className="vehicle-input" 
-                        />
-                      </div>
-                      {idx % 2 === 0 ? <div className="col-span-2"></div> : null}
-                    </>
-                  )}
-                </React.Fragment>
-              ))}
+              {Array.from({ length: 14 }).map((_, idx) => {
+                const installmentIndex = idx + 6;
+                return (
+                  <React.Fragment key={installmentIndex}>
+                    {idx === 0 ? (
+                      <>
+                        {/* Additional rows for installments 7-20 */}
+                        <div className="col-span-2 p-1 flex items-center">
+                          <Checkbox 
+                            checked={currentSale.installments[installmentIndex].enabled}
+                            onCheckedChange={(checked) => 
+                              handleInstallmentChange(installmentIndex, 'enabled', checked)
+                            }
+                            className="mr-2"
+                          />
+                          <Input 
+                            type="date" 
+                            value={currentSale.installments[installmentIndex].date}
+                            onChange={(e) => handleInstallmentChange(installmentIndex, 'date', e.target.value)}
+                            disabled={!currentSale.installments[installmentIndex].enabled}
+                            className="vehicle-input flex-1" 
+                          />
+                        </div>
+                        <div className="col-span-2 p-1">
+                          <Input 
+                            type="number" 
+                            value={currentSale.installments[installmentIndex].amount}
+                            onChange={(e) => handleInstallmentChange(installmentIndex, 'amount', e.target.value)}
+                            disabled={!currentSale.installments[installmentIndex].enabled}
+                            className="vehicle-input" 
+                          />
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="col-span-2 p-1 flex items-center">
+                          <Checkbox 
+                            checked={currentSale.installments[installmentIndex].enabled}
+                            onCheckedChange={(checked) => 
+                              handleInstallmentChange(installmentIndex, 'enabled', checked)
+                            }
+                            className="mr-2"
+                          />
+                          <Input 
+                            type="date" 
+                            value={currentSale.installments[installmentIndex].date}
+                            onChange={(e) => handleInstallmentChange(installmentIndex, 'date', e.target.value)}
+                            disabled={!currentSale.installments[installmentIndex].enabled}
+                            className="vehicle-input flex-1" 
+                          />
+                        </div>
+                        <div className="col-span-2 p-1">
+                          <Input 
+                            type="number" 
+                            value={currentSale.installments[installmentIndex].amount}
+                            onChange={(e) => handleInstallmentChange(installmentIndex, 'amount', e.target.value)}
+                            disabled={!currentSale.installments[installmentIndex].enabled}
+                            className="vehicle-input" 
+                          />
+                        </div>
+                        {idx % 2 === 0 ? <div className="col-span-2"></div> : null}
+                      </>
+                    )}
+                  </React.Fragment>
+                );
+              })}
               
               {/* Due DT */}
               <div className="col-span-1 p-1 bg-app-blue text-white font-medium">Due DT</div>
