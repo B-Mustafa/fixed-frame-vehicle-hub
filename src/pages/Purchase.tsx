@@ -5,8 +5,9 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { VehiclePurchase, getPurchases, addPurchase, updatePurchase, deletePurchase } from "@/utils/dataStorage";
 import { format } from "date-fns";
-import { Search, Printer } from "lucide-react";
+import { Search, Printer, FileDown, FileUp } from "lucide-react";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import * as XLSX from 'xlsx';
 
 const emptyPurchase: Omit<VehiclePurchase, "id"> = {
   date: format(new Date(), "yyyy-MM-dd"),
@@ -35,6 +36,7 @@ const Purchase = () => {
   const { toast } = useToast();
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const printRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Load purchases on component mount
   useEffect(() => {
@@ -339,6 +341,142 @@ const Purchase = () => {
     }
   };
 
+  // Export to Excel
+  const handleExportToExcel = () => {
+    try {
+      // Prepare the data for export
+      const dataToExport = purchases.map(purchase => ({
+        ID: purchase.id,
+        Date: purchase.date,
+        Party: purchase.party,
+        Address: purchase.address,
+        Phone: purchase.phone,
+        Remark: purchase.remark,
+        Model: purchase.model,
+        "Vehicle No": purchase.vehicleNo,
+        Chassis: purchase.chassis,
+        Price: purchase.price,
+        "Transport Cost": purchase.transportCost,
+        Total: purchase.total,
+        // Convert photo to base64 string for export
+        Photo: purchase.photoUrl || ''
+      }));
+      
+      // Create a new workbook
+      const wb = XLSX.utils.book_new();
+      
+      // Convert the data to a worksheet
+      const ws = XLSX.utils.json_to_sheet(dataToExport);
+      
+      // Add the worksheet to the workbook
+      XLSX.utils.book_append_sheet(wb, ws, "Purchases");
+      
+      // Generate a download link
+      XLSX.writeFile(wb, "vehicle_purchases.xlsx");
+      
+      toast({
+        title: "Export Successful",
+        description: "Purchase data has been exported to Excel"
+      });
+    } catch (error) {
+      console.error("Error exporting to Excel:", error);
+      toast({
+        title: "Export Failed",
+        description: "An error occurred while exporting data to Excel",
+        variant: "destructive"
+      });
+    }
+  };
+
+  // Import from Excel/CSV
+  const handleImportFromFile = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const binaryStr = evt.target?.result;
+        const wb = XLSX.read(binaryStr, { type: 'binary' });
+        
+        // Get the first worksheet
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        
+        // Convert the worksheet to JSON
+        const data = XLSX.utils.sheet_to_json(ws);
+        
+        // Transform the data to match our VehiclePurchase format
+        const importedPurchases: Omit<VehiclePurchase, "id">[] = data.map((row: any) => ({
+          date: row.Date || format(new Date(), "yyyy-MM-dd"),
+          party: row.Party || "",
+          address: row.Address || "",
+          phone: row.Phone || "",
+          remark: row.Remark || "",
+          model: row.Model || "",
+          vehicleNo: row["Vehicle No"] || row.VehicleNo || "",
+          chassis: row.Chassis || "",
+          price: Number(row.Price) || 0,
+          transportCost: Number(row["Transport Cost"] || row.TransportCost) || 0,
+          total: Number(row.Total) || 0,
+          photoUrl: row.Photo || ""
+        }));
+        
+        // Confirm with the user
+        if (window.confirm(`Import ${importedPurchases.length} purchase records?`)) {
+          // Save each imported purchase
+          const saveImportedPurchases = async () => {
+            let successCount = 0;
+            let failCount = 0;
+            
+            for (const purchase of importedPurchases) {
+              try {
+                await addPurchase(purchase);
+                successCount++;
+              } catch (error) {
+                console.error("Error importing purchase:", error);
+                failCount++;
+              }
+            }
+            
+            // Refresh the purchases list
+            const updatedPurchases = await getPurchases();
+            setPurchases(updatedPurchases);
+            
+            if (updatedPurchases.length > 0) {
+              setCurrentPurchase(updatedPurchases[0]);
+              setCurrentIndex(0);
+              setPhotoPreview(updatedPurchases[0].photoUrl || null);
+            }
+            
+            toast({
+              title: "Import Complete",
+              description: `Successfully imported ${successCount} records. Failed: ${failCount}`
+            });
+          };
+          
+          saveImportedPurchases();
+        }
+      } catch (error) {
+        console.error("Error parsing import file:", error);
+        toast({
+          title: "Import Failed",
+          description: "Failed to parse the import file. Please check the file format.",
+          variant: "destructive"
+        });
+      }
+    };
+    
+    reader.readAsBinaryString(file);
+    
+    // Reset the file input for future imports
+    e.target.value = '';
+  };
+
   const navigateFirst = () => {
     if (purchases.length > 0) {
       setCurrentPurchase(purchases[0]);
@@ -429,6 +567,28 @@ const Purchase = () => {
           >
             <Printer className="h-4 w-4 mr-2" /> Print
           </Button>
+          <Button 
+            variant="outline" 
+            onClick={handleExportToExcel}
+            className="bg-green-50"
+          >
+            <FileDown className="h-4 w-4 mr-2" /> Export Excel
+          </Button>
+          <Button 
+            variant="outline" 
+            onClick={handleImportFromFile}
+            className="bg-blue-50"
+          >
+            <FileUp className="h-4 w-4 mr-2" /> Import
+          </Button>
+          {/* Hidden file input for import */}
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            accept=".xlsx,.xls,.csv"
+            style={{ display: 'none' }}
+          />
         </div>
 
         <div className="flex items-center space-x-2">
@@ -692,3 +852,4 @@ const Purchase = () => {
 };
 
 export default Purchase;
+
