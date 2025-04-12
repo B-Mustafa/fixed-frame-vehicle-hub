@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,7 +48,7 @@ const emptyPurchase: Omit<VehiclePurchase, "id"> = {
   total: 0,
   photoUrl: "",
   manualId: "", // Added manualId to match the interface
-  brokerage: 0,
+  brokerage: 0
 };
 
 // Key for storing search history in localStorage
@@ -455,8 +456,8 @@ const Purchase = () => {
             }
           </div>
           <div class="print-field">
-        <span class="print-label">Brokerage:</span> ${currentPurchase.brokerage}
-      </div>
+            <span class="print-label">Brokerage:</span> ${currentPurchase.brokerage}
+          </div>
           <div class="print-field">
             <span class="print-label">Total Amount:</span> ${
               currentPurchase.total
@@ -1335,8 +1336,8 @@ const Purchase = () => {
         </div>
       </div>
 
-      {/* Image Preview Modal
-      {photoPreview && (
+      {/* Image Preview Modal */}
+      {photoPreview && showPhotoModal && (
         <ImagePreviewModal 
           imageUrl={photoPreview} 
           showCloseButton={true}
@@ -1344,7 +1345,7 @@ const Purchase = () => {
           alt="Vehicle"
           showModal={showPhotoModal}
         />
-      )} */}
+      )}
     </div>
   );
 };
