@@ -95,14 +95,17 @@ const Sales = () => {
   >([]);
   const [searchResults, setSearchResults] = useState<VehicleSale[]>([]);
   const [showSearchResults, setShowSearchResults] = useState(false);
+  
+  // Change the default value to true to use Supabase by default
+  const [useSupabase, setUseSupabase] = useState(true);
   const { toast } = useToast();
+  
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [showPhotoModal, setShowPhotoModal] = useState(false);
   const [labelColor, setLabelColor] = useState("#e6f7ff");
   const printRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
-  const [useSupabase, setUseSupabase] = useState(true);
 
   useEffect(() => {
     const fetchSales = async () => {
@@ -910,15 +913,27 @@ const Sales = () => {
       unregisterKeyBindings();
     };
   }, []);
+
+  // Save user preference for Supabase in localStorage
   const toggleSupabase = () => {
-    setUseSupabase(!useSupabase);
+    const newValue = !useSupabase;
+    setUseSupabase(newValue);
+    localStorage.setItem("useSupabase", newValue.toString());
     toast({
-      title: useSupabase ? "Local Storage Mode" : "Supabase Mode",
-      description: useSupabase 
-        ? "Switched to local storage mode" 
-        : "Switched to Supabase cloud storage mode",
+      title: newValue ? "Supabase Mode" : "Local Storage Mode",
+      description: newValue 
+        ? "Switched to Supabase cloud storage mode" 
+        : "Switched to local storage mode",
     });
   };
+
+  // Add useEffect to load the stored preference
+  useEffect(() => {
+    const storedPreference = localStorage.getItem("useSupabase");
+    if (storedPreference !== null) {
+      setUseSupabase(storedPreference === "true");
+    }
+  }, []);
 
   return (
     <div className="h-full p-4 bg-[#0080FF] overflow-auto">
@@ -1060,17 +1075,3 @@ const Sales = () => {
                 </div>
                 <Button
                   variant="outline"
-                  onClick={handleSearch}
-                  className="ml-1"
-                  size="sm"
-                >
-                  <Search className="h-4 w-4" />
-                </Button>
-
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="ml-1" size="sm">
-                      <History className="h-4 w-4" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-[
