@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -379,8 +380,6 @@ const Sales = () => {
     }
   };
 
-
-
   const handlePrint = () => {
     const printContent = printRef.current;
     if (!printContent) return;
@@ -621,113 +620,114 @@ const Sales = () => {
     }
   };
 
-// Update your keybinding handlers
-const handleKeyBindsChange = (binds: KeyBind[]) => {
-  // Save to localStorage
-  localStorage.setItem("app_keybinds", JSON.stringify(binds));
-  
-  // Register the key bindings with proper handlers
-  registerKeyBindings(binds.map(bind => ({
-    ...bind,
-    handler: () => {
-      switch (bind.id) {
-        case 'search':
-          handleSearch();
-          break;
-        case 'new':
-          handleNew();
-          break;
-        case 'save':
-          handleSave();
-          break;
-        case 'delete':
-          handleDelete();
-          break;
-        case 'first':
-          navigateFirst();
-          break;
-        case 'last':
-          navigateLast();
-          break;
-        case 'prev':
-          navigatePrev();
-          break;
-        case 'next':
-          navigateNext();
-          break;
-        case 'search_prev':
-          if (searchResults.length > 0) {
-            const currentIndex = searchResults.findIndex(s => s.id === currentSale.id);
-            const prevIndex = currentIndex > 0 ? currentIndex - 1 : searchResults.length - 1;
-            const prevResult = searchResults[prevIndex];
-            const saleIndex = sales.findIndex(s => s.id === prevResult.id);
-            setCurrentSale(prevResult);
-            setCurrentIndex(saleIndex);
-            setPhotoPreview(prevResult.photoUrl || null);
-          }
-          break;
-        case 'search_next':
-          if (searchResults.length > 0) {
-            const currentIndex = searchResults.findIndex(s => s.id === currentSale.id);
-            const nextIndex = currentIndex < searchResults.length - 1 ? currentIndex + 1 : 0;
-            const nextResult = searchResults[nextIndex];
-            const saleIndex = sales.findIndex(s => s.id === nextResult.id);
-            setCurrentSale(nextResult);
-            setCurrentIndex(saleIndex);
-            setPhotoPreview(nextResult.photoUrl || null);
-          }
-          break;
-        case 'print':
-          handlePrint();
-          break;
-        case 'export':
-          handleExportToExcel();
-          break;
+  // Update your keybinding handlers
+  const handleKeyBindsChange = (binds: KeyBind[]) => {
+    // Save to localStorage
+    localStorage.setItem("app_keybinds", JSON.stringify(binds));
+    
+    // Register the key bindings with proper handlers
+    registerKeyBindings(binds.map(bind => ({
+      ...bind,
+      handler: () => {
+        switch (bind.id) {
+          case 'search':
+            handleSearch();
+            break;
+          case 'new':
+            handleNew();
+            break;
+          case 'save':
+            handleSave();
+            break;
+          case 'delete':
+            handleDelete();
+            break;
+          case 'first':
+            navigateFirst();
+            break;
+          case 'last':
+            navigateLast();
+            break;
+          case 'prev':
+            navigatePrev();
+            break;
+          case 'next':
+            navigateNext();
+            break;
+          case 'search_prev':
+            if (searchResults.length > 0) {
+              const currentIndex = searchResults.findIndex(s => s.id === currentSale.id);
+              const prevIndex = currentIndex > 0 ? currentIndex - 1 : searchResults.length - 1;
+              const prevResult = searchResults[prevIndex];
+              const saleIndex = sales.findIndex(s => s.id === prevResult.id);
+              setCurrentSale(prevResult);
+              setCurrentIndex(saleIndex);
+              setPhotoPreview(prevResult.photoUrl || null);
+            }
+            break;
+          case 'search_next':
+            if (searchResults.length > 0) {
+              const currentIndex = searchResults.findIndex(s => s.id === currentSale.id);
+              const nextIndex = currentIndex < searchResults.length - 1 ? currentIndex + 1 : 0;
+              const nextResult = searchResults[nextIndex];
+              const saleIndex = sales.findIndex(s => s.id === nextResult.id);
+              setCurrentSale(nextResult);
+              setCurrentIndex(saleIndex);
+              setPhotoPreview(nextResult.photoUrl || null);
+            }
+            break;
+          case 'print':
+            handlePrint();
+            break;
+          case 'export':
+            handleExportToExcel();
+            break;
+        }
       }
-    }
-  })));
-};
+    })));
+  };
 
-// Update your useEffect for keybindings initialization
-useEffect(() => {
-  const initialize = async () => {
-    try {
-      // Load sales data
-      const loadedSales = await getSales();
-      setSales(loadedSales);
-      if (loadedSales.length > 0) {
-        const firstSale = loadedSales[0];
-        setCurrentSale({
-          ...firstSale,
-          manualId: firstSale.manualId || firstSale.id?.toString() || "",
-          installments: firstSale.installments || emptySale.installments
+  // Update your useEffect for keybindings initialization
+  useEffect(() => {
+    const initialize = async () => {
+      try {
+        // Load sales data
+        const loadedSales = await getSales();
+        setSales(loadedSales);
+        if (loadedSales.length > 0) {
+          const firstSale = loadedSales[0];
+          setCurrentSale({
+            ...firstSale,
+            manualId: firstSale.manualId || firstSale.id?.toString() || "",
+            installments: firstSale.installments || emptySale.installments
+          });
+          setCurrentIndex(0);
+          setPhotoPreview(firstSale.photoUrl || null);
+        }
+
+        // Load keybindings
+        const savedBinds = loadKeyBindings();
+        const bindingsToUse = savedBinds || DEFAULT_KEYBINDS;
+        
+        // Register keybindings with handlers
+        handleKeyBindsChange(bindingsToUse);
+      } catch (error) {
+        console.error("Error initializing:", error);
+        toast({
+          title: "Error",
+          description: "Failed to initialize data",
+          variant: "destructive"
         });
-        setCurrentIndex(0);
-        setPhotoPreview(firstSale.photoUrl || null);
       }
+    };
 
-      // Load keybindings
-      const savedBinds = loadKeyBindings();
-      const bindingsToUse = savedBinds || DEFAULT_KEYBINDS;
-      
-      // Register keybindings with handlers
-      handleKeyBindsChange(bindingsToUse);
-    } catch (error) {
-      console.error("Error initializing:", error);
-      toast({
-        title: "Error",
-        description: "Failed to initialize data",
-        variant: "destructive"
-      });
-    }
-  };
+    initialize();
 
-  initialize();
-
-  return () => {
-    unregisterKeyBindings();
-  };
-}, []);
+    return () => {
+      unregisterKeyBindings();
+    };
+  }, []);
+  
   return (
     <div className="h-full p-4 bg-white overflow-auto">
       <div className="flex flex-wrap items-center justify-between mb-4 gap-2 sticky top-0 bg-white z-10 pb-2">
@@ -1237,7 +1237,6 @@ useEffect(() => {
               ))}
             </div>
           </div>
-
         </div>
 
         {/* Photo Column */}
@@ -1256,8 +1255,8 @@ useEffect(() => {
                       alt="Vehicle" 
                       className="w-full h-64 object-contain rounded"
                     />
-                      <ZoomIn className="h-8 w-8 text-white" />
                     <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity rounded">
+                      <ZoomIn className="h-8 w-8 text-white" />
                     </div>
                   </div>
                 </div>
@@ -1267,81 +1266,82 @@ useEffect(() => {
                 </div>
               )}
             </div>
-          {/* Witness Details */}
-          <div className="mb-4">
-            <h3 className="mb-2" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>
-              Witness Details
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="flex">
-                <label className="w-20" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>Witness</label>
-                <Input 
-                  name="witness"
-                  value={currentSale.witness || ''} 
-                  onChange={handleInputChange}
-                  className="flex-1" 
-                />
-              </div>
-              <div className="flex">
-                <label className="w-20" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>Address</label>
-                <Input 
-                  name="witnessAddress"
-                  value={currentSale.witnessAddress || ''} 
-                  onChange={handleInputChange}
-                  className="flex-1" 
-                />
-              </div>
-              <div className="flex">
-                <label className="w-20" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>Contact</label>
-                <Input 
-                  name="witnessContact"
-                  value={currentSale.witnessContact || ''} 
-                  onChange={handleInputChange}
-                  className="flex-1" 
-                />
-              </div>
-              <div className="flex">
-                <label className="w-20" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>Wit. 2</label>
-                <Input 
-                  name="witnessName2"
-                  value={currentSale.witnessName2 || ''} 
-                  onChange={handleInputChange}
-                  className="flex-1" 
-                />
+          
+            {/* Witness Details */}
+            <div className="mb-4">
+              <h3 className="mb-2" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>
+                Witness Details
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="flex">
+                  <label className="w-20" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>Witness</label>
+                  <Input 
+                    name="witness"
+                    value={currentSale.witness || ''} 
+                    onChange={handleInputChange}
+                    className="flex-1" 
+                  />
+                </div>
+                <div className="flex">
+                  <label className="w-20" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>Address</label>
+                  <Input 
+                    name="witnessAddress"
+                    value={currentSale.witnessAddress || ''} 
+                    onChange={handleInputChange}
+                    className="flex-1" 
+                  />
+                </div>
+                <div className="flex">
+                  <label className="w-20" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>Contact</label>
+                  <Input 
+                    name="witnessContact"
+                    value={currentSale.witnessContact || ''} 
+                    onChange={handleInputChange}
+                    className="flex-1" 
+                  />
+                </div>
+                <div className="flex">
+                  <label className="w-20" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>Wit. 2</label>
+                  <Input 
+                    name="witnessName2"
+                    value={currentSale.witnessName2 || ''} 
+                    onChange={handleInputChange}
+                    className="flex-1" 
+                  />
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* Remarks */}
-          <div className="mb-4">
-            <h3 className="mb-2" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>
-              Remarks
-            </h3>
-            <div className="space-y-2">
-              <div className="flex">
-                <Input 
-                  name="remark"
-                  value={currentSale.remark || ''} 
-                  onChange={handleInputChange}
-                  className="flex-1" 
-                />
-              </div>
-              <div className="flex items-center">
-                <Checkbox 
-                  name="rcBook"
-                  checked={currentSale.rcBook}
-                  onCheckedChange={(checked) => {
-                    setCurrentSale({
-                      ...currentSale,
-                      rcBook: !!checked
-                    });
-                  }}
-                  className="mr-2"
-                />
-                <label>R.C. Book</label>
+            {/* Remarks */}
+            <div className="mb-4">
+              <h3 className="mb-2" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>
+                Remarks
+              </h3>
+              <div className="space-y-2">
+                <div className="flex">
+                  <Input 
+                    name="remark"
+                    value={currentSale.remark || ''} 
+                    onChange={handleInputChange}
+                    className="flex-1" 
+                  />
+                </div>
+                <div className="flex items-center">
+                  <Checkbox 
+                    name="rcBook"
+                    checked={currentSale.rcBook}
+                    onCheckedChange={(checked) => {
+                      setCurrentSale({
+                        ...currentSale,
+                        rcBook: !!checked
+                      });
+                    }}
+                    className="mr-2"
+                  />
+                  <label>R.C. Book</label>
+                </div>
               </div>
             </div>
-          </div>
             
             <Button
               variant="outline"
@@ -1362,8 +1362,9 @@ useEffect(() => {
           </div>
         </div>
       </div>
-{/* 
-      {photoPreview && (
+
+      {/* Image Preview Modal */}
+      {photoPreview && showPhotoModal && (
         <ImagePreviewModal 
           imageUrl={photoPreview} 
           showCloseButton={true}
@@ -1371,8 +1372,7 @@ useEffect(() => {
           alt="Vehicle"
           showModal={showPhotoModal}
         />
-      )} */}
-      
+      )}
     </div>
   );
 };
