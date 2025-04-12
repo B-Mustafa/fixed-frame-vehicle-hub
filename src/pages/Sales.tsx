@@ -571,7 +571,9 @@ const Sales = () => {
                 <span class="print-label">Phone:</span> ${currentSale.phone}
               </div>
               <div class="print-field">
-                <span class="print-label">Model:</span> ${currentSale.model}
+                <span class="print-label">Model:</span> ${
+                  currentSale.model
+                }
               </div>
               <div class="print-field">
                 <span class="print-label">Vehicle No:</span> ${
@@ -1071,4 +1073,4 @@ const Sales = () => {
                       <History className="h-4 w-4" />
                     </Button>
                   </PopoverTrigger>
-                  <PopoverContent className="w-[300px
+                  <PopoverContent className="w-[
