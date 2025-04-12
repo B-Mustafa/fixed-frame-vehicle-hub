@@ -1,8 +1,11 @@
+*{
+  font-size: 40px;
+  font-weight: bolder;
+}
 #root {
   max-width: 1280px;
   margin: 0 auto;
   padding: 2rem;
-  text-align: center;
 }
 
 .logo {

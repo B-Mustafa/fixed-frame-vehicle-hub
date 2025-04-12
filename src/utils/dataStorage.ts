@@ -1,4 +1,6 @@
+import { createClient } from '@supabase/supabase-js';
 import * as XLSX from 'xlsx';
+import * as localforage from 'localforage';
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
 
 // Types for our data
