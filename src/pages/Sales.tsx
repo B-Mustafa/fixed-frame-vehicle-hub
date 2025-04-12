@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,6 +35,15 @@ import {
   loadKeyBindings,
 } from "@/utils/keyBindings";
 import { KeyBind, DEFAULT_KEYBINDS } from "@/components/KeyBindDialog";
+import ImagePreviewModal from "@/components/ImagePreviewModal";
+import { supabase } from "@/integrations/supabase/client";
+import { 
+  getSupabaseSales, 
+  addSupabaseSale, 
+  updateSupabaseSale, 
+  deleteSupabaseSale, 
+  uploadVehicleImage 
+} from "@/integrations/supabase/service";
 
 const emptySale: Omit<VehicleSale, "id"> = {
   date: format(new Date(), "yyyy-MM-dd"),
@@ -94,11 +102,37 @@ const Sales = () => {
   const printRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
+  const [useSupabase, setUseSupabase] = useState(true);
 
   useEffect(() => {
     const fetchSales = async () => {
       try {
-        const loadedSales = await getSales();
+        let loadedSales: VehicleSale[];
+        
+        if (useSupabase) {
+          // Try to fetch from Supabase
+          try {
+            loadedSales = await getSupabaseSales();
+            console.log("Supabase sales loaded:", loadedSales);
+            toast({
+              title: "Success",
+              description: "Data loaded from Supabase successfully",
+            });
+          } catch (error) {
+            console.error("Error loading from Supabase:", error);
+            toast({
+              title: "Supabase Error",
+              description: "Falling back to local storage",
+              variant: "destructive",
+            });
+            // Fall back to local storage
+            loadedSales = await getSales();
+          }
+        } else {
+          // Use local storage
+          loadedSales = await getSales();
+        }
+        
         setSales(loadedSales);
         if (loadedSales.length > 0) {
           const firstSale = loadedSales[0];
@@ -145,7 +179,7 @@ const Sales = () => {
 
     fetchSales();
     loadSearchHistory();
-  }, [toast]);
+  }, [toast, useSupabase]);
 
   // Fixed calculation effect - added proper dependencies
   useEffect(() => {
@@ -241,19 +275,44 @@ const Sales = () => {
     }
   };
 
-  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const photoUrl = event.target?.result as string;
+      try {
+        let photoUrl;
+        
+        if (useSupabase) {
+          // Upload to Supabase Storage
+          photoUrl = await uploadVehicleImage(file);
+        } else {
+          // Use local storage (base64)
+          const reader = new FileReader();
+          photoUrl = await new Promise<string>((resolve) => {
+            reader.onload = (event) => {
+              resolve(event.target?.result as string);
+            };
+            reader.readAsDataURL(file);
+          });
+        }
+        
         setPhotoPreview(photoUrl);
         setCurrentSale({
           ...currentSale,
           photoUrl,
         });
-      };
-      reader.readAsDataURL(file);
+        
+        toast({
+          title: "Success",
+          description: "Photo uploaded successfully",
+        });
+      } catch (error) {
+        console.error("Error uploading photo:", error);
+        toast({
+          title: "Error",
+          description: "Failed to upload photo",
+          variant: "destructive",
+        });
+      }
     }
   };
 
@@ -270,11 +329,36 @@ const Sales = () => {
 
     try {
       const updatedSales = [...sales];
+      let updatedSale;
+
+      if (useSupabase) {
+        // Use Supabase
+        if (currentSale.id) {
+          updatedSale = await updateSupabaseSale(currentSale as VehicleSale);
+        } else {
+          // Make sure address is not undefined
+          const saleToAdd = {
+            ...currentSale,
+            address: currentSale.address || ""
+          };
+          updatedSale = await addSupabaseSale(saleToAdd);
+        }
+      } else {
+        // Use local storage
+        if (currentSale.id) {
+          updatedSale = await updateSale(currentSale as VehicleSale);
+        } else {
+          updatedSale = await addSale(currentSale);
+        }
+      }
 
       if (currentSale.id) {
-        const updatedSale = await updateSale(currentSale as VehicleSale);
         const index = updatedSales.findIndex((s) => s.id === updatedSale.id);
-        updatedSales[index] = updatedSale;
+        if (index >= 0) {
+          updatedSales[index] = updatedSale;
+        } else {
+          updatedSales.push(updatedSale);
+        }
 
         if (updatedSale.dueAmount > 0) {
           const duePayments = await getDuePayments();
@@ -300,16 +384,15 @@ const Sales = () => {
           description: `Sale to ${updatedSale.party} has been updated.`,
         });
       } else {
-        const newSale = await addSale(currentSale);
-        updatedSales.push(newSale);
+        updatedSales.push(updatedSale);
         setCurrentSale({
-          ...newSale,
-          manualId: newSale.manualId || newSale.id?.toString() || "",
+          ...updatedSale,
+          manualId: updatedSale.manualId || updatedSale.id?.toString() || "",
         });
         setCurrentIndex(updatedSales.length - 1);
         toast({
           title: "Sale Added",
-          description: `New sale to ${newSale.party} has been added.`,
+          description: `New sale to ${updatedSale.party} has been added.`,
         });
       }
 
@@ -340,7 +423,15 @@ const Sales = () => {
 
     if (window.confirm("Are you sure you want to delete this sale?")) {
       try {
-        const deleted = await deleteSale(currentSale.id);
+        let deleted;
+        
+        if (useSupabase) {
+          // Use Supabase
+          deleted = await deleteSupabaseSale(currentSale.id);
+        } else {
+          // Use local storage
+          deleted = await deleteSale(currentSale.id);
+        }
 
         if (deleted) {
           const updatedSales = sales.filter((s) => s.id !== currentSale.id);
@@ -410,9 +501,9 @@ const Sales = () => {
       (sale) =>
         sale.party.toLowerCase().includes(searchLower) ||
         sale.vehicleNo.toLowerCase().includes(searchLower) ||
-        sale.phone.includes(searchLower) ||
+        sale.phone?.includes(searchLower) ||
         sale.model.toLowerCase().includes(searchLower) ||
-        sale.chassis.toLowerCase().includes(searchLower) ||
+        sale.chassis?.toLowerCase().includes(searchLower) ||
         sale.address.toLowerCase().includes(searchLower) ||
         sale.remark?.toLowerCase().includes(searchLower)
     );
@@ -817,6 +908,16 @@ const Sales = () => {
       unregisterKeyBindings();
     };
   }, []);
+  const toggleSupabase = () => {
+    setUseSupabase(!useSupabase);
+    toast({
+      title: useSupabase ? "Local Storage Mode" : "Supabase Mode",
+      description: useSupabase 
+        ? "Switched to local storage mode" 
+        : "Switched to Supabase cloud storage mode",
+    });
+  };
+
   return (
     <div className="h-full p-4 bg-[#0080FF] overflow-auto">
       <div className="flex flex-wrap items-center justify-between gap-2 sticky top-0 z-10">
@@ -893,6 +994,14 @@ const Sales = () => {
             accept=".xlsx,.xls,.csv"
             style={{ display: "none" }}
           />
+          <Button
+            variant={useSupabase ? "default" : "outline"}
+            onClick={toggleSupabase}
+            size="sm"
+            className={useSupabase ? "bg-green-500" : ""}
+          >
+            {useSupabase ? "Using Supabase" : "Using Local Storage"}
+          </Button>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
@@ -962,812 +1071,4 @@ const Sales = () => {
                       <History className="h-4 w-4" />
                     </Button>
                   </PopoverTrigger>
-                  <PopoverContent className="w-[300px] p-0">
-                    <div className="max-h-[300px] overflow-y-auto py-2">
-                      <div className="flex items-center justify-between px-3 py-1.5">
-                        <h4 className=" ">Search History</h4>
-                        <button
-                          className=" text-gray-500 hover:text-gray-900"
-                          onClick={() => {
-                            setSearchHistory([]);
-                            localStorage.removeItem(SEARCH_HISTORY_KEY);
-                          }}
-                        >
-                          Clear All
-                        </button>
-                      </div>
-                      {searchHistory.length > 0 ? (
-                        <div className="mt-1">
-                          {searchHistory.map((item, index) => (
-                            <div
-                              key={index}
-                              className="flex items-center justify-between px-3 py-2 hover:bg-gray-100"
-                            >
-                              <button
-                                className="flex w-full text-left "
-                                onClick={() => {
-                                  setSearchQuery(item.query);
-                                  setShowSearchResults(false);
-                                  setTimeout(() => {
-                                    handleSearch();
-                                  }, 100);
-                                }}
-                              >
-                                <span className="flex items-center">
-                                  <History className="mr-2 h-3 w-3 text-gray-400" />
-                                  {item.query}
-                                </span>
-                              </button>
-                              <button
-                                className="ml-2 text-gray-400 hover:text-gray-600"
-                                onClick={() => {
-                                  const newHistory = searchHistory.filter(
-                                    (_, i) => i !== index
-                                  );
-                                  setSearchHistory(newHistory);
-                                  localStorage.setItem(
-                                    SEARCH_HISTORY_KEY,
-                                    JSON.stringify(newHistory)
-                                  );
-                                }}
-                              >
-                                <X className="h-3 w-3" />
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="px-3 py-2  text-gray-500">
-                          No recent searches
-                        </div>
-                      )}
-                    </div>
-                  </PopoverContent>
-                </Popover>
-              </div>
-              <PopoverContent className="w-[300px] p-0">
-                <div className="max-h-[300px] overflow-y-auto py-2">
-                  <div className="flex items-center justify-between px-3 py-1">
-                    <h4 className=" ">
-                      Search Results ({searchResults.length})
-                    </h4>
-                  </div>
-                  {searchResults.length > 0 ? (
-                    <div className="mt-1">
-                      {searchResults.map((result, index) => (
-                        <button
-                          key={index}
-                          className="flex w-full items-center px-3 py-2  hover:bg-gray-100"
-                          onClick={() => {
-                            const resultIndex = sales.findIndex(
-                              (s) => s.id === result.id
-                            );
-                            setCurrentSale(result);
-                            setCurrentIndex(resultIndex);
-                            setPhotoPreview(result.photoUrl || null);
-                            setShowSearchResults(false);
-                          }}
-                        >
-                          <div className="flex flex-col">
-                            <span className="">{result.party}</span>
-                            <span className=" text-gray-500">
-                              {result.vehicleNo} • {result.model}
-                            </span>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="px-3 py-2  text-gray-500">
-                      No matching records
-                    </div>
-                  )}
-                </div>
-              </PopoverContent>
-            </Popover>
-          </div>
-        </div>
-      </div>
-
-      <div
-        className="grid grid-cols-1 md:grid-cols-4 gap-4 overflow-y-auto"
-        ref={printRef}
-        style={{ maxHeight: "calc(100vh - 140px)" }}
-      >
-        <div className="col-span-2 p-4  overflow-y-auto">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Basic Info Column */}
-            <div>
-              <div className="mb-4">
-                {/* <h3 className="mb-2" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>
-                  Transaction Details
-                </h3> */}
-                <div className="space-y-2">
-                  <div className="flex">
-                    <label
-                      className="w-20"
-                      style={{
-                        backgroundColor: labelColor,
-                        padding: "0px 4px",
-                        borderRadius: "4px",
-                      }}
-                    >
-                      No
-                    </label>
-                    <Input
-                      name="manualId"
-                      value={
-                        currentSale.manualId || currentSale.id?.toString() || ""
-                      }
-                      onChange={handleInputChange}
-                      className="flex-1"
-                    />
-                  </div>
-                  <div className="flex">
-                    <label
-                      className="w-20"
-                      style={{
-                        backgroundColor: labelColor,
-                        padding: "0px 4px",
-                        borderRadius: "4px",
-                      }}
-                    >
-                      Date
-                    </label>
-                    <Input
-                      type="date"
-                      name="date"
-                      value={currentSale.date}
-                      onChange={handleInputChange}
-                      className="flex-1"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="mb-4">
-                <h3
-                  className="mb-2"
-                  style={{
-                    backgroundColor: labelColor,
-                    padding: "0px 4px",
-                    borderRadius: "4px",
-                  }}
-                >
-                  Party Details
-                </h3>
-                <div className="space-y-2">
-                  <div className="flex">
-                    <label
-                      className="w-20"
-                      style={{
-                        backgroundColor: labelColor,
-                        padding: "0px 4px",
-                        borderRadius: "4px",
-                      }}
-                    >
-                      Party
-                    </label>
-                    <Input
-                      name="party"
-                      value={currentSale.party}
-                      onChange={handleInputChange}
-                      className="flex-1"
-                    />
-                  </div>
-                  <div className="flex">
-                    <label
-                      className="w-20"
-                      style={{
-                        backgroundColor: labelColor,
-                        padding: "0px 4px",
-                        borderRadius: "4px",
-                      }}
-                    >
-                      Add.
-                    </label>
-                    <Input
-                      name="address"
-                      value={currentSale.address}
-                      onChange={handleInputChange}
-                      className="flex-1"
-                    />
-                  </div>
-                  <div className="flex">
-                    <label
-                      className="w-20"
-                      style={{
-                        backgroundColor: labelColor,
-                        padding: "0px 4px",
-                        borderRadius: "4px",
-                      }}
-                    >
-                      Ph
-                    </label>
-                    <Input
-                      name="phone"
-                      value={currentSale.phone}
-                      onChange={handleInputChange}
-                      className="flex-1"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="mb-4">
-                <h3
-                  className="mb-2"
-                  style={{
-                    backgroundColor: labelColor,
-                    padding: "0px 4px",
-                    borderRadius: "4px",
-                  }}
-                >
-                  Vehicle Details
-                </h3>
-                <div className="space-y-2">
-                  <div className="flex">
-                    <label
-                      className="w-20"
-                      style={{
-                        backgroundColor: labelColor,
-                        padding: "0px 4px",
-                        borderRadius: "4px",
-                      }}
-                    >
-                      Model
-                    </label>
-                    <Input
-                      name="model"
-                      value={currentSale.model}
-                      onChange={handleInputChange}
-                      className="flex-1"
-                    />
-                  </div>
-                  <div className="flex">
-                    <label
-                      className="w-20"
-                      style={{
-                        backgroundColor: labelColor,
-                        padding: "0px 4px",
-                        borderRadius: "4px",
-                      }}
-                    >
-                      Veh. No
-                    </label>
-                    <Input
-                      name="vehicleNo"
-                      value={currentSale.vehicleNo}
-                      onChange={handleInputChange}
-                      className="flex-1"
-                    />
-                  </div>
-                  <div className="flex">
-                    <label
-                      className="w-20"
-                      style={{
-                        backgroundColor: labelColor,
-                        padding: "0px 4px",
-                        borderRadius: "4px",
-                      }}
-                    >
-                      Chassis
-                    </label>
-                    <Input
-                      name="chassis"
-                      value={currentSale.chassis}
-                      onChange={handleInputChange}
-                      className="flex-1"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Cost Details Column */}
-            <div>
-              <div className="mb-4">
-                {/* <h3 className="mb-2" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>
-                  Cost Details
-                </h3> */}
-                <div className="space-y-2">
-                  <div className="flex">
-                    <label
-                      className="w-20"
-                      style={{
-                        backgroundColor: labelColor,
-                        padding: "0px 4px",
-                        borderRadius: "4px",
-                      }}
-                    >
-                      Price
-                    </label>
-                    <Input
-                      type="number"
-                      name="price"
-                      value={currentSale.price || ""}
-                      onChange={handleInputChange}
-                      className="flex-1"
-                    />
-                  </div>
-                  <div className="flex">
-                    <label
-                      className="w-20"
-                      style={{
-                        backgroundColor: labelColor,
-                        padding: "0px 4px",
-                        borderRadius: "4px",
-                      }}
-                    >
-                      Trans.
-                    </label>
-                    <Input
-                      type="number"
-                      name="transportCost"
-                      value={currentSale.transportCost || ""}
-                      onChange={handleInputChange}
-                      className="flex-1"
-                    />
-                  </div>
-                  <div className="flex">
-                    <label
-                      className="w-20"
-                      style={{
-                        backgroundColor: labelColor,
-                        padding: "0px 4px",
-                        borderRadius: "4px",
-                      }}
-                    >
-                      Insur.
-                    </label>
-                    <Input
-                      type="number"
-                      name="insurance"
-                      value={currentSale.insurance || ""}
-                      onChange={handleInputChange}
-                      className="flex-1"
-                    />
-                  </div>
-                  <div className="flex">
-                    <label
-                      className="w-20"
-                      style={{
-                        backgroundColor: labelColor,
-                        padding: "0px 4px",
-                        borderRadius: "4px",
-                      }}
-                    >
-                      Finance
-                    </label>
-                    <Input
-                      type="number"
-                      name="finance"
-                      value={currentSale.finance || ""}
-                      onChange={handleInputChange}
-                      className="flex-1"
-                    />
-                  </div>
-                  <div className="flex">
-                    <label
-                      className="w-20"
-                      style={{
-                        backgroundColor: labelColor,
-                        padding: "0px 4px",
-                        borderRadius: "4px",
-                      }}
-                    >
-                      Repair
-                    </label>
-                    <Input
-                      type="number"
-                      name="repair"
-                      value={currentSale.repair || ""}
-                      onChange={handleInputChange}
-                      className="flex-1"
-                    />
-                  </div>
-                  <div className="flex">
-                    <label
-                      className="w-20"
-                      style={{
-                        backgroundColor: labelColor,
-                        padding: "0px 4px",
-                        borderRadius: "4px",
-                      }}
-                    >
-                      Penalty
-                    </label>
-                    <Input
-                      type="number"
-                      name="penalty"
-                      value={currentSale.penalty || ""}
-                      onChange={handleInputChange}
-                      className="flex-1"
-                    />
-                  </div>
-                  <div className="flex">
-                    <label
-                      className="w-20"
-                      style={{
-                        backgroundColor: labelColor,
-                        padding: "0px 4px",
-                        borderRadius: "4px",
-                      }}
-                    >
-                      Total
-                    </label>
-                    <Input
-                      readOnly
-                      type="number"
-                      name="total"
-                      value={currentSale.total || ""}
-                      className="flex-1 bg-gray-50"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="mb-4">
-
-                <div className="space-y-2">
-                  <div className="flex">
-                    <label
-                      className="w-20"
-                      style={{
-                        backgroundColor: labelColor,
-                        padding: "0px 4px",
-                        borderRadius: "4px",
-                      }}
-                    >
-                      Due Amt
-                    </label>
-                    <Input
-                      type="number"
-                      name="dueAmount"
-                      value={currentSale.dueAmount || ""}
-                      onChange={handleInputChange}
-                      className="flex-1"
-                    />
-                  </div>
-                  <div className="flex">
-                    <label
-                      className="w-fit"
-                      style={{
-                        backgroundColor: labelColor,
-                        padding: "0px 4px",
-                        borderRadius: "4px",
-                      }}
-                    >
-                      Due Date
-                    </label>
-                    <Input
-                      type="date"
-                      name="dueDate"
-                      value={currentSale.dueDate}
-                      onChange={handleInputChange}
-                      className="flex-1"
-                    />
-                  </div>
-                  <div className="flex">
-                    <label
-                      className="w-20"
-                      style={{
-                        backgroundColor: labelColor,
-                        padding: "0px 4px",
-                        borderRadius: "4px",
-                      }}
-                    >
-                      Remind
-                    </label>
-                    <Input
-                      type="time"
-                      name="reminder"
-                      value={currentSale.reminder}
-                      onChange={handleInputChange}
-                      className="flex-1"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Installments Grid */}
-          {/* Installments Grid */}
-          <div className="mb-4">
-            <h3
-              className="mb-2"
-              style={{
-                backgroundColor: labelColor,
-                padding: "0px 4px",
-                borderRadius: "4px",
-              }}
-            >
-              Installments
-            </h3>
-            <div className="grid grid-cols-2 gap-2">
-              {currentSale.installments
-                .slice(0, 10)
-                .map((installment, index) => (
-                  <div key={index} className="flex items-center gap-2">
-                    <div className="flex-1">
-                      <Input
-                        type="date"
-                        value={installment.date}
-                        onChange={(e) =>
-                          handleInstallmentChange(index, "date", e.target.value)
-                        }
-                        className="w-full  h-8"
-                        disabled={!installment.enabled}
-                      />
-                    </div>
-                    <div className="flex-1">
-                      <Input
-                        type="number"
-                        value={installment.amount || ""}
-                        onChange={(e) =>
-                          handleInstallmentChange(
-                            index,
-                            "amount",
-                            e.target.value
-                          )
-                        }
-                        className="w-full  h-8"
-                        disabled={!installment.enabled}
-                      />
-                    </div>
-                    <Checkbox
-                      checked={installment.enabled}
-                      onCheckedChange={(checked) =>
-                        handleInstallmentChange(index, "enabled", checked)
-                      }
-                      className="h-4 w-4"
-                    />
-                  </div>
-                ))}
-            </div>
-            <div className="grid grid-cols-2 gap-2 mt-2">
-              {currentSale.installments
-                .slice(10, 20)
-                .map((installment, index) => (
-                  <div key={index + 10} className="flex items-center gap-2">
-                    <div className="flex-1">
-                      <Input
-                        type="date"
-                        value={installment.date}
-                        onChange={(e) =>
-                          handleInstallmentChange(
-                            index + 10,
-                            "date",
-                            e.target.value
-                          )
-                        }
-                        className="w-full  h-8"
-                        disabled={!installment.enabled}
-                      />
-                    </div>
-                    <div className="flex-1">
-                      <Input
-                        type="number"
-                        value={installment.amount || ""}
-                        onChange={(e) =>
-                          handleInstallmentChange(
-                            index + 10,
-                            "amount",
-                            e.target.value
-                          )
-                        }
-                        className="w-full  h-8"
-                        disabled={!installment.enabled}
-                      />
-                    </div>
-                    <Checkbox
-                      checked={installment.enabled}
-                      onCheckedChange={(checked) =>
-                        handleInstallmentChange(index + 10, "enabled", checked)
-                      }
-                      className="h-4 w-4"
-                    />
-                  </div>
-                ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Photo Column */}
-        <div className="col-span-2 p-4  bg-gray-50">
-          <div className="flex flex-col h-full">
-            <h3
-              className="mb-2"
-              style={{
-                backgroundColor: labelColor,
-                padding: "0px 4px",
-                borderRadius: "4px",
-              }}
-            >
-              Vehicle Photo
-            </h3>
-
-            <div className="flex flex-col items-center justify-center border-2 border-dashed border-gray-300 -md p-4 mb-4 relative">
-              {photoPreview ? (
-                <div className="relative w-fit h-64 flex items-center justify-center">
-                  <div
-                    onClick={handleViewPhoto}
-                    className="cursor-pointer relative group"
-                  >
-                    <img
-                      src={photoPreview}
-                      alt="Vehicle"
-                      className="w-fit h-64 object-contain "
-                    />
-                    <ZoomIn className="h-8 w-8 text-white" />
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity "></div>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center text-gray-500">
-                  <p>No photo available</p>
-                </div>
-              )}
-            </div>
-                <Button
-                  variant="outline"
-                  onClick={handleAddPhoto}
-                  className="w-full bg-red-400"
-                >
-                  <Camera className="h-4 w-4 mr-2" />
-                  {photoPreview ? "Change Photo" : "Add Photo"}
-                </Button>
-            {/* Witness Details */}
-            <div className="mb-4">
-              <h3
-                className="mb-2"
-                style={{
-                  backgroundColor: labelColor,
-                  padding: "0px 4px",
-                  borderRadius: "4px",
-                }}
-              >
-                Witness Details
-              </h3>
-              <div className="grid grid-cols-2  gap-4">
-                <div className="flex">
-                  <label
-                    className="w-20"
-                    style={{
-                      backgroundColor: labelColor,
-                      padding: "0px 4px",
-                      borderRadius: "4px",
-                    }}
-                  >
-                    Witness
-                  </label>
-                  <Input
-                    name="witness"
-                    value={currentSale.witness || ""}
-                    onChange={handleInputChange}
-                    className="flex-1"
-                  />
-                </div>
-                <div className="flex">
-                  <label
-                    className="w-20"
-                    style={{
-                      backgroundColor: labelColor,
-                      padding: "0px 4px",
-                      borderRadius: "4px",
-                    }}
-                  >
-                    Address
-                  </label>
-                  <Input
-                    name="witnessAddress"
-                    value={currentSale.witnessAddress || ""}
-                    onChange={handleInputChange}
-                    className="flex-1"
-                  />
-                </div>
-                <div className="flex">
-                  <label
-                    className="w-20"
-                    style={{
-                      backgroundColor: labelColor,
-                      padding: "0px 4px",
-                      borderRadius: "4px",
-                    }}
-                  >
-                    Contact
-                  </label>
-                  <Input
-                    name="witnessContact"
-                    value={currentSale.witnessContact || ""}
-                    onChange={handleInputChange}
-                    className="flex-1"
-                  />
-                </div>
-                <div className="flex">
-                  <label
-                    className="w-20"
-                    style={{
-                      backgroundColor: labelColor,
-                      padding: "0px 4px",
-                      borderRadius: "4px",
-                    }}
-                  >
-                    Wit. 2
-                  </label>
-                  <Input
-                    name="witnessName2"
-                    value={currentSale.witnessName2 || ""}
-                    onChange={handleInputChange}
-                    className="flex-1"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Remarks */}
-            <div className="mb-4">
-              <h3
-                className="mb-2"
-                style={{
-                  backgroundColor: labelColor,
-                  padding: "0px 4px",
-                  borderRadius: "4px",
-                }}
-              >
-                Remarks
-              </h3>
-              <div className="space-y-2">
-                <div className="flex">
-                  <Input
-                    name="remark"
-                    value={currentSale.remark || ""}
-                    onChange={handleInputChange}
-                    className="flex-1"
-                  />
-                </div>
-                <div className="flex items-center">
-                  <Checkbox
-                    name="rcBook"
-                    checked={currentSale.rcBook}
-                    onCheckedChange={(checked) => {
-                      setCurrentSale({
-                        ...currentSale,
-                        rcBook: !!checked,
-                      });
-                    }}
-                    className="mr-2"
-                  />
-                  <label>R.C. Book</label>
-                </div>
-              </div>
-            </div>
-
-
-            <input
-              type="file"
-              ref={photoInputRef}
-              onChange={handlePhotoChange}
-              accept="image/*"
-              style={{ display: "none" }}
-            />
-          </div>
-        </div>
-      </div>
-      {/* 
-      {photoPreview && (
-        <ImagePreviewModal 
-          imageUrl={photoPreview} 
-          showCloseButton={true}
-          onClose={() => setShowPhotoModal(false)}
-          alt="Vehicle"
-          showModal={showPhotoModal}
-        />
-      )} */}
-    </div>
-  );
-};
-
-export default Sales;
-
+                  <PopoverContent className="w-[300px
