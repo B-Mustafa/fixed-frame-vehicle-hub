@@ -1,202 +1,442 @@
-
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { DuePayment, getSale, getDuePayments, updateDuePayment } from "@/utils/dataStorage";
-import { format } from "date-fns";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
+import { 
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { format, isAfter, isBefore, isEqual, parseISO } from 'date-fns';
+import { Filter, Download, Calendar } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import { getSales } from "@/utils/dataStorage";
+
+// Dummy data type for due list entries
+interface DueEntry {
+  id: number;
+  customerName: string;
+  phone: string; 
+  vehicleNo: string;
+  totalAmount: number;
+  paidAmount: number;
+  pendingAmount: number;
+  dueDate: string;
+  status: 'pending' | 'partial' | 'overdue';
+  lastPaymentDate: string;
+}
 
 const DueList = () => {
-  const [duePayments, setDuePayments] = useState<DuePayment[]>([]);
-  const [filteredPayments, setFilteredPayments] = useState<DuePayment[]>([]);
-  const [selectedDue, setSelectedDue] = useState<DuePayment | null>(null);
-  const [filter, setFilter] = useState("all"); // all, pending, paid
-  const [searchQuery, setSearchQuery] = useState("");
+  const [dueEntries, setDueEntries] = useState<DueEntry[]>([]);
+  const [filteredEntries, setFilteredEntries] = useState<DueEntry[]>([]);
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [search, setSearch] = useState("");
+  const [sortBy, setSortBy] = useState<string>("dueDate");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+  const [fromDate, setFromDate] = useState<string>("");
+  const [toDate, setToDate] = useState<string>("");
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+
   const { toast } = useToast();
-  const [paymentAmount, setPaymentAmount] = useState<number>(0);
-  const [paymentDate, setPaymentDate] = useState<string>(format(new Date(), "yyyy-MM-dd"));
 
-  // Load due payments on component mount
-  useEffect(() => {
-    const fetchDuePayments = async () => {
-      try {
-        const loadedDuePayments = await getDuePayments();
-        setDuePayments(loadedDuePayments);
-        setFilteredPayments(loadedDuePayments);
-      } catch (error) {
-        console.error("Error loading due payments:", error);
-        toast({
-          title: "Error",
-          description: "Failed to load due payments",
-          variant: "destructive"
+  // Load data from sales records
+  const loadDueDataFromSales = async () => {
+    setIsLoading(true);
+    try {
+      // Get sales data from the dataStorage utility
+      const salesData = await getSales();
+      
+      // Transform sales data to due entries
+      const dueData: DueEntry[] = salesData
+        .filter(sale => sale.dueAmount > 0) // Only include sales with pending amounts
+        .map(sale => {
+          // Calculate the status based on due date
+          const today = new Date();
+          const dueDate = new Date(sale.dueDate);
+          const lastPaymentDate = sale.installments
+            ?.filter(inst => inst.enabled)
+            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]?.date || "";
+            
+          let status: 'pending' | 'partial' | 'overdue' = 'pending';
+          
+          if (sale.dueAmount >= sale.total) {
+            status = today > dueDate ? 'overdue' : 'pending';
+          } else if (sale.dueAmount > 0) {
+            status = today > dueDate ? 'overdue' : 'partial';
+          }
+          
+          return {
+            id: sale.id || 0,
+            customerName: sale.party,
+            vehicleNo: sale.vehicleNo,
+            phone: sale.phone || "",
+            totalAmount: sale.total,
+            paidAmount: sale.total - sale.dueAmount,
+            pendingAmount: sale.dueAmount,
+            dueDate: sale.dueDate,
+            status,
+            lastPaymentDate
+          };
         });
-      }
-    };
-    
-    fetchDuePayments();
-  }, [toast]);
-
-  // Filter dues when filter or search query changes
-  useEffect(() => {
-    let filtered = duePayments;
-    
-    // Apply status filter
-    if (filter !== "all") {
-      filtered = filtered.filter(payment => payment.status === filter);
-    }
-    
-    // Apply search
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(payment => 
-        payment.party.toLowerCase().includes(query) || 
-        payment.vehicleNo.toLowerCase().includes(query)
-      );
-    }
-    
-    setFilteredPayments(filtered);
-  }, [duePayments, filter, searchQuery]);
-
-  const handleStatusChange = (status: string) => {
-    setFilter(status);
-  };
-
-  const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchQuery(e.target.value);
-  };
-
-  const handleSelectDue = (payment: DuePayment) => {
-    setSelectedDue(payment);
-    setPaymentAmount(payment.dueAmount);
-  };
-
-  const handlePayment = async () => {
-    if (!selectedDue) return;
-    
-    if (paymentAmount <= 0) {
+      
+      setDueEntries(dueData);
+      setFilteredEntries(dueData);
+      
+      toast({
+        title: "Data Loaded",
+        description: `Loaded ${dueData.length} due entries from sales records`
+      });
+    } catch (error) {
+      console.error("Error loading sales data:", error);
+      setDueEntries([]);
+      setFilteredEntries([]);
       toast({
         title: "Error",
-        description: "Payment amount must be greater than zero",
+        description: "Failed to load data from sales records. Using sample data instead.",
         variant: "destructive"
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Load data on component mount
+  useEffect(() => {
+    loadDueDataFromSales();
+  }, []);
+
+  // Apply date filters to fetch records
+  const handleApplyDateFilter = () => {
+    if (!fromDate && !toDate) {
+      toast({
+        title: "Filter Warning",
+        description: "Please select at least one date to filter"
       });
       return;
     }
     
-    const updatedStatus = paymentAmount >= selectedDue.dueAmount ? "paid" : "partial";
-    const remaining = Math.max(0, selectedDue.dueAmount - paymentAmount);
+    loadDueDataFromSales();
+  };
+
+  // Filter and sort data when filters change
+  useEffect(() => {
+    let filtered = [...dueEntries];
     
-    try {
-      const updatedPayment = await updateDuePayment(selectedDue.id, {
-        status: updatedStatus,
-        dueAmount: remaining,
-        lastPaid: {
-          date: paymentDate,
-          amount: paymentAmount
-        }
+    // Apply status filter
+    if (statusFilter !== "all") {
+      filtered = filtered.filter(entry => entry.status === statusFilter);
+    }
+    
+    // Apply date range filter
+    if (fromDate) {
+      const fromDateObj = parseISO(fromDate);
+      filtered = filtered.filter(entry => {
+        const entryDate = parseISO(entry.dueDate);
+        return isAfter(entryDate, fromDateObj) || isEqual(entryDate, fromDateObj);
       });
+    }
+    
+    if (toDate) {
+      const toDateObj = parseISO(toDate);
+      filtered = filtered.filter(entry => {
+        const entryDate = parseISO(entry.dueDate);
+        return isBefore(entryDate, toDateObj) || isEqual(entryDate, toDateObj);
+      });
+    }
+    
+    // Apply search filter
+    if (search.trim()) {
+      const searchLower = search.toLowerCase();
+      filtered = filtered.filter(entry => 
+        entry.customerName.toLowerCase().includes(searchLower) ||
+        entry.vehicleNo.toLowerCase().includes(searchLower) ||
+        entry.phone.includes(searchLower) 
+      );
+    }
+    
+    // Apply sorting
+    filtered.sort((a, b) => {
+      let comparison = 0;
       
-      if (updatedPayment) {
-        // Update the due payments list
-        const updated = duePayments.map(p => 
-          p.id === updatedPayment.id ? updatedPayment : p
-        );
-        
-        setDuePayments(updated);
-        setSelectedDue(updatedPayment);
-        
-        toast({
-          title: "Payment Recorded",
-          description: `Payment of ${paymentAmount} recorded successfully.`
-        });
+      switch (sortBy) {
+        case "customerName":
+          comparison = a.customerName.localeCompare(b.customerName);
+          break;
+        case "totalAmount":
+          comparison = a.totalAmount - b.totalAmount;
+          break;
+        case "paidAmount":
+          comparison = a.paidAmount - b.paidAmount;
+          break;
+        case "pendingAmount":
+          comparison = a.pendingAmount - b.pendingAmount;
+          break;
+        case "dueDate":
+          comparison = new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+          break;
+        default:
+          comparison = 0;
       }
-    } catch (error) {
-      console.error("Error updating payment:", error);
+      
+      return sortOrder === "asc" ? comparison : -comparison;
+    });
+    
+    setFilteredEntries(filtered);
+  }, [dueEntries, statusFilter, search, sortBy, sortOrder, fromDate, toDate]);
+
+  // Export due list to Excel
+  const handleExportToExcel = () => {
+    try {
+      const dataToExport = filteredEntries.map(entry => ({
+        ID: entry.id,
+        'Customer Name': entry.customerName,
+        'Vehicle No': entry.vehicleNo,
+        'Total Amount': entry.totalAmount,
+        'Paid Amount': entry.paidAmount,
+        'Pending Amount': entry.pendingAmount,
+        'Due Date': entry.dueDate,
+        'Status': entry.status.charAt(0).toUpperCase() + entry.status.slice(1),
+        'Last Payment Date': entry.lastPaymentDate || 'N/A'
+      }));
+      
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.json_to_sheet(dataToExport);
+      
+      XLSX.utils.book_append_sheet(wb, ws, "Due List");
+      XLSX.writeFile(wb, `due_list_${format(new Date(), 'yyyy-MM-dd')}.xlsx`);
+      
       toast({
-        title: "Error",
-        description: "Failed to record payment",
+        title: "Export Successful",
+        description: "Due list has been exported to Excel"
+      });
+    } catch (error) {
+      console.error("Error exporting to Excel:", error);
+      toast({
+        title: "Export Failed",
+        description: "An error occurred while exporting data",
         variant: "destructive"
       });
     }
   };
 
+  // Reset all filters
+  const handleResetFilters = () => {
+    setStatusFilter("all");
+    setSearch("");
+    setFromDate("");
+    setToDate("");
+    setSortBy("dueDate");
+    setSortOrder("asc");
+  };
+
+  // Get status badge color
+  const getStatusBadgeColor = (status: string) => {
+    switch (status) {
+      case 'pending':
+        return 'bg-blue-100 text-blue-800';
+      case 'partial':
+        return 'bg-yellow-100 text-yellow-800';
+      case 'overdue':
+        return 'bg-red-100 text-red-800';
+      default:
+        return 'bg-gray-100 text-gray-800';
+    }
+  };
+
   return (
-    <div className="h-full p-4 bg-white">
-      <div className="flex justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <label className="font-medium">Filter:</label>
-          <Select value={filter} onValueChange={handleStatusChange}>
-            <SelectTrigger className="w-32">
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All</SelectItem>
-              <SelectItem value="pending">Pending</SelectItem>
-              <SelectItem value="partial">Partial</SelectItem>
-              <SelectItem value="paid">Paid</SelectItem>
-            </SelectContent>
-          </Select>
+    <div className="p-4 h-full overflow-auto">
+      <div className="flex flex-col space-y-4">
+        <div className="flex items-center justify-between flex-wrap gap-4">
+          <h1 className="text-2xl font-bold">Due List</h1>
+          
+          <div className="flex items-center gap-3 flex-wrap">
+            <Button 
+              variant="outline" 
+              onClick={handleExportToExcel}
+              className="bg-green-50"
+            >
+              <Download className="h-4 w-4 mr-2" />
+              Export Excel
+            </Button>
+          </div>
         </div>
         
-        <div className="flex items-center gap-2">
-          <label className="font-medium">Search:</label>
-          <Input 
-            placeholder="Search party or vehicle no..." 
-            value={searchQuery}
-            onChange={handleSearch}
-            className="w-64"
-          />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-5 gap-4 h-[calc(100vh-180px)]">
-        {/* Due List Table */}
-        <div className="col-span-3 bg-app-blue p-4 rounded">
-          <h3 className="vehicle-form-label mb-2">Due List</h3>
+        {/* Filters */}
+        <div className="flex flex-wrap items-center gap-4 bg-gray-50 p-4 rounded-lg">
+          <div className="flex items-center gap-2">
+            <Filter className="h-4 w-4 text-gray-500" />
+            <span className="text-sm font-medium">Filters:</span>
+          </div>
           
-          <div className="bg-white rounded overflow-auto h-[calc(100vh-240px)]">
-            <table className="w-full border-collapse">
-              <thead>
-                <tr className="bg-gray-100">
-                  <th className="border border-gray-300 p-2 text-left">ID</th>
-                  <th className="border border-gray-300 p-2 text-left">Party</th>
-                  <th className="border border-gray-300 p-2 text-left">Vehicle No</th>
-                  <th className="border border-gray-300 p-2 text-left">Due Amount</th>
-                  <th className="border border-gray-300 p-2 text-left">Due Date</th>
-                  <th className="border border-gray-300 p-2 text-left">Status</th>
-                  <th className="border border-gray-300 p-2 text-left">Last Payment</th>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 w-full">
+            <div className="space-y-1">
+              <Label htmlFor="status">Status</Label>
+              <Select 
+                value={statusFilter} 
+                onValueChange={setStatusFilter}
+              >
+                <SelectTrigger id="status">
+                  <SelectValue placeholder="Select Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="partial">Partial</SelectItem>
+                  <SelectItem value="overdue">Overdue</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div className="space-y-1">
+              <Label htmlFor="search">Search</Label>
+              <Input
+                id="search"
+                placeholder="Search by name or vehicle no..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+            
+            <div className="space-y-1">
+              <Label htmlFor="sortBy">Sort By</Label>
+              <Select 
+                value={sortBy} 
+                onValueChange={setSortBy}
+              >
+                <SelectTrigger id="sortBy">
+                  <SelectValue placeholder="Sort By" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="dueDate">Due Date</SelectItem>
+                  <SelectItem value="customerName">Customer Name</SelectItem>
+                  <SelectItem value="totalAmount">Total Amount</SelectItem>
+                  <SelectItem value="paidAmount">Paid Amount</SelectItem>
+                  <SelectItem value="pendingAmount">Pending Amount</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div className="space-y-1">
+              <Label htmlFor="sortOrder">Sort Order</Label>
+              <Select 
+                value={sortOrder} 
+                onValueChange={(value) => setSortOrder(value as "asc" | "desc")}
+              >
+                <SelectTrigger id="sortOrder">
+                  <SelectValue placeholder="Sort Order" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="asc">Ascending</SelectItem>
+                  <SelectItem value="desc">Descending</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          
+          {/* Date Range Filter */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full mt-2">
+            <div className="space-y-1">
+              <Label htmlFor="fromDate">From Date</Label>
+              <div className="relative">
+                <Calendar className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                <Input
+                  id="fromDate"
+                  type="date"
+                  value={fromDate}
+                  onChange={(e) => setFromDate(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+            </div>
+            
+            <div className="space-y-1">
+              <Label htmlFor="toDate">To Date</Label>
+              <div className="relative">
+                <Calendar className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                <Input
+                  id="toDate"
+                  type="date"
+                  value={toDate}
+                  onChange={(e) => setToDate(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+            </div>
+            
+            <div className="flex items-end gap-2">
+              <Button 
+                onClick={handleApplyDateFilter}
+                disabled={isLoading}
+                className="flex-1"
+              >
+                {isLoading ? "Loading..." : "Apply Filters"}
+              </Button>
+              <Button 
+                variant="outline" 
+                onClick={handleResetFilters}
+                className="flex-1"
+              >
+                Reset
+              </Button>
+            </div>
+          </div>
+        </div>
+        
+        {/* Due List Table */}
+        <div className="border rounded-lg overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Customer</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Vehicle No</th>
+                  <th className="px-4 py-3 text-right text-sm font-medium text-gray-500">Total Amount</th>
+                  <th className="px-4 py-3 text-right text-sm font-medium text-gray-500">Paid Amount</th>
+                  <th className="px-4 py-3 text-right text-sm font-medium text-gray-500">Pending Amount</th>
+                  <th className="px-4 py-3 text-center text-sm font-medium text-gray-500">Due Date</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Phone</th>
+                  <th className="px-4 py-3 text-center text-sm font-medium text-gray-500">Status</th>
                 </tr>
               </thead>
-              <tbody>
-                {filteredPayments.length > 0 ? (
-                  filteredPayments.map((payment) => (
-                    <tr 
-                      key={payment.id} 
-                      onClick={() => handleSelectDue(payment)}
-                      className={`
-                        cursor-pointer hover:bg-gray-50
-                        ${selectedDue?.id === payment.id ? 'bg-blue-100' : ''}
-                        ${payment.status === 'paid' ? 'text-green-600' : 
-                          payment.status === 'partial' ? 'text-orange-600' : ''}
-                      `}
-                    >
-                      <td className="border border-gray-300 p-2">{payment.id}</td>
-                      <td className="border border-gray-300 p-2">{payment.party}</td>
-                      <td className="border border-gray-300 p-2">{payment.vehicleNo}</td>
-                      <td className="border border-gray-300 p-2">{payment.dueAmount}</td>
-                      <td className="border border-gray-300 p-2">{payment.dueDate}</td>
-                      <td className="border border-gray-300 p-2 capitalize">{payment.status}</td>
-                      <td className="border border-gray-300 p-2">
-                        {payment.lastPaid ? 
-                          `${payment.lastPaid.date}: ${payment.lastPaid.amount}` : 
-                          '-'}
+              <tbody className="divide-y">
+                {isLoading ? (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
+                      Loading due entries...
+                    </td>
+                  </tr>
+                ) : filteredEntries.length > 0 ? (
+                  filteredEntries.map((entry) => (
+                    <tr key={entry.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-sm">{entry.customerName}</td>
+                      <td className="px-4 py-3 text-sm">{entry.vehicleNo}</td>
+                      <td className="px-4 py-3 text-sm text-right">{entry.totalAmount.toLocaleString()}</td>
+                      <td className="px-4 py-3 text-sm text-right">{entry.paidAmount.toLocaleString()}</td>
+                      <td className="px-4 py-3 text-sm text-right font-medium">
+                        {entry.pendingAmount > 0 ? (
+                          <span className="text-red-600">{entry.pendingAmount.toLocaleString()}</span>
+                        ) : (
+                          <span className="text-green-600">0</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-center">
+                        {format(new Date(entry.dueDate), 'dd/MM/yyyy')}
+                      </td>
+                      <td className="px-4 py-3 text-sm">{entry.phone}</td> 
+                      <td className="px-4 py-3 text-sm text-center">
+                        <span className={`px-2 py-1 rounded-full text-xs ${getStatusBadgeColor(entry.status)}`}>
+                          {entry.status.charAt(0).toUpperCase() + entry.status.slice(1)}
+                        </span>
                       </td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={7} className="border border-gray-300 p-4 text-center text-gray-500">
-                      No due payments found
+                    <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
+                      No due entries found matching the current filters
                     </td>
                   </tr>
                 )}
@@ -204,90 +444,27 @@ const DueList = () => {
             </table>
           </div>
         </div>
-
-        {/* Payment Details */}
-        <div className="col-span-2 bg-app-blue p-4 rounded">
-          <h3 className="vehicle-form-label mb-2">Payment Details</h3>
-          
-          {selectedDue ? (
-            <div className="bg-white p-4 rounded space-y-4">
-              <h4 className="font-medium text-lg">Selected Due:</h4>
-              
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-gray-600 text-sm">Party:</label>
-                  <div className="font-medium">{selectedDue.party}</div>
-                </div>
-                
-                <div>
-                  <label className="block text-gray-600 text-sm">Vehicle No:</label>
-                  <div className="font-medium">{selectedDue.vehicleNo}</div>
-                </div>
-                
-                <div>
-                  <label className="block text-gray-600 text-sm">Due Amount:</label>
-                  <div className="font-medium">{selectedDue.dueAmount}</div>
-                </div>
-                
-                <div>
-                  <label className="block text-gray-600 text-sm">Due Date:</label>
-                  <div className="font-medium">{selectedDue.dueDate}</div>
-                </div>
-                
-                <div>
-                  <label className="block text-gray-600 text-sm">Status:</label>
-                  <div className="font-medium capitalize">{selectedDue.status}</div>
-                </div>
-                
-                <div>
-                  <label className="block text-gray-600 text-sm">Last Payment:</label>
-                  <div className="font-medium">
-                    {selectedDue.lastPaid ? 
-                      `${selectedDue.lastPaid.date}: ${selectedDue.lastPaid.amount}` : 
-                      'None'}
-                  </div>
-                </div>
-              </div>
-              
-              <hr className="my-4" />
-              
-              <h4 className="font-medium">Record Payment:</h4>
-              
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-gray-600 text-sm">Payment Date:</label>
-                  <Input 
-                    type="date" 
-                    value={paymentDate}
-                    onChange={(e) => setPaymentDate(e.target.value)}
-                    className="w-full"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-gray-600 text-sm">Payment Amount:</label>
-                  <Input 
-                    type="number" 
-                    value={paymentAmount}
-                    onChange={(e) => setPaymentAmount(e.target.value ? parseFloat(e.target.value) : 0)}
-                    className="w-full"
-                  />
-                </div>
-                
-                <Button 
-                  onClick={handlePayment}
-                  disabled={!selectedDue || selectedDue.status === "paid" || paymentAmount <= 0}
-                  className="w-full"
-                >
-                  Record Payment
-                </Button>
+        
+        {/* Summary Section */}
+        <div className="bg-gray-50 p-4 rounded-lg">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="bg-white p-3 rounded shadow-sm">
+              <div className="text-sm text-gray-500">Total Records</div>
+              <div className="text-2xl font-bold">{filteredEntries.length}</div>
+            </div>
+            <div className="bg-white p-3 rounded shadow-sm">
+              <div className="text-sm text-gray-500">Total Pending Amount</div>
+              <div className="text-2xl font-bold text-red-600">
+                {filteredEntries.reduce((sum, entry) => sum + entry.pendingAmount, 0).toLocaleString()}
               </div>
             </div>
-          ) : (
-            <div className="bg-white p-4 rounded text-center text-gray-500">
-              Select a due payment from the list to see details
+            <div className="bg-white p-3 rounded shadow-sm">
+              <div className="text-sm text-gray-500">Total Overdue</div>
+              <div className="text-2xl font-bold text-red-600">
+                {filteredEntries.filter(entry => entry.status === 'overdue').length}
+              </div>
             </div>
-          )}
+          </div>
         </div>
       </div>
     </div>

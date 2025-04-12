@@ -1,24 +1,21 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
-import {
-  VehicleSale,
-  getSales,
-  addSale,
-  updateSale,
-  deleteSale,
-} from "@/utils/dataStorage";
+import { VehicleSale, getSales, addSale, updateSale, deleteSale, getDuePayments, updateDuePayment } from "@/utils/dataStorage";
 import { format } from "date-fns";
-import { Search } from "lucide-react";
+import { Search, Printer, FileDown, FileUp, X, History, Camera, ZoomIn } from "lucide-react";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { exportSalesToExcel, importSalesFromExcel } from "@/utils/excelStorage";
+import { registerKeyBindings, unregisterKeyBindings, loadKeyBindings } from "@/utils/keyBindings";
+import { KeyBind, DEFAULT_KEYBINDS } from "@/components/KeyBindDialog";
 
 const emptySale: Omit<VehicleSale, "id"> = {
   date: format(new Date(), "yyyy-MM-dd"),
   party: "",
   address: "",
   phone: "",
-  remark: "",
   model: "",
   vehicleNo: "",
   chassis: "",
@@ -29,154 +26,166 @@ const emptySale: Omit<VehicleSale, "id"> = {
   repair: 0,
   penalty: 0,
   total: 0,
-  dueDate: format(
-    new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-    "yyyy-MM-dd"
-  ),
+  dueDate: format(new Date(), "yyyy-MM-dd"),
   dueAmount: 0,
-  reminder: "00:00",
   witness: "",
   witnessAddress: "",
   witnessContact: "",
   witnessName2: "",
-  rcBook: false,
+  remark: "",
   photoUrl: "",
-  installments: Array(16).fill({
+  manualId: "",
+  reminder: "00:00",
+  rcBook: false,
+  installments: Array(20).fill(0).map(() => ({
     date: "",
     amount: 0,
     paid: 0,
-    enabled: false,
-  }),
+    enabled: false
+  }))
 };
 
+const SEARCH_HISTORY_KEY = 'salesSearchHistory';
+
 const Sales = () => {
-  const [currentSale, setCurrentSale] = useState<
-    VehicleSale | (Omit<VehicleSale, "id"> & { id?: number })
-  >(emptySale);
+  const [currentSale, setCurrentSale] = useState<VehicleSale | (Omit<VehicleSale, "id"> & { id?: number })>(emptySale);
   const [sales, setSales] = useState<VehicleSale[]>([]);
-  const [filteredSales, setFilteredSales] = useState<VehicleSale[]>([]);
   const [currentIndex, setCurrentIndex] = useState(-1);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchHistory, setSearchHistory] = useState<{query: string, timestamp: number}[]>([]);
+  const [searchResults, setSearchResults] = useState<VehicleSale[]>([]);
+  const [showSearchResults, setShowSearchResults] = useState(false);
   const { toast } = useToast();
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState("");
+  const [showPhotoModal, setShowPhotoModal] = useState(false);
+  const [labelColor, setLabelColor] = useState("#e6f7ff");
+  const printRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
-  // Load sales on component mount
   useEffect(() => {
     const fetchSales = async () => {
       try {
         const loadedSales = await getSales();
         setSales(loadedSales);
-        setFilteredSales(loadedSales);
         if (loadedSales.length > 0) {
-          setCurrentSale(loadedSales[0]);
+          const firstSale = loadedSales[0];
+          setCurrentSale({
+            ...firstSale,
+            manualId: firstSale.manualId || firstSale.id?.toString() || "",
+            installments: firstSale.installments || emptySale.installments
+          });
           setCurrentIndex(0);
-          setPhotoPreview(loadedSales[0].photoUrl || null);
+          setPhotoPreview(firstSale.photoUrl || null);
         }
       } catch (error) {
         console.error("Error loading sales:", error);
         toast({
           title: "Error",
           description: "Failed to load sales",
-          variant: "destructive",
+          variant: "destructive"
         });
       }
     };
 
+    const loadSearchHistory = () => {
+      const savedHistory = localStorage.getItem(SEARCH_HISTORY_KEY);
+      if (savedHistory) {
+        const parsedHistory = JSON.parse(savedHistory) as {query: string, timestamp: number}[];
+        const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
+        const filteredHistory = parsedHistory.filter(item => item.timestamp >= oneDayAgo);
+        
+        if (filteredHistory.length !== parsedHistory.length) {
+          localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(filteredHistory));
+        }
+        
+        setSearchHistory(filteredHistory);
+      }
+    };
+    
     fetchSales();
+    loadSearchHistory();
   }, [toast]);
 
-  // Filter sales based on search term
-  useEffect(() => {
-    if (searchTerm.trim() === "") {
-      setFilteredSales(sales);
-      if (sales.length > 0 && currentIndex === -1) {
-        setCurrentSale(sales[0]);
-        setCurrentIndex(0);
-      }
-    } else {
-      const filtered = sales.filter(
-        (sale) =>
-          sale.party.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          sale.vehicleNo.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          sale.model.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-      setFilteredSales(filtered);
-      if (filtered.length > 0) {
-        setCurrentSale(filtered[0]);
-        setCurrentIndex(0);
-      } else {
-        setCurrentSale(emptySale);
-        setCurrentIndex(-1);
-      }
-    }
-  }, [searchTerm, sales]);
-
-  // Calculate totals whenever form changes
   useEffect(() => {
     if (currentSale) {
-      const total =
-        (currentSale.price || 0) +
-        (currentSale.transportCost || 0) +
-        (currentSale.insurance || 0) +
-        (currentSale.finance || 0) +
-        (currentSale.repair || 0) +
+      const total = 
+        (currentSale.price || 0) + 
+        (currentSale.transportCost || 0) + 
+        (currentSale.insurance || 0) + 
+        (currentSale.finance || 0) + 
+        (currentSale.repair || 0) + 
         (currentSale.penalty || 0);
+      
+      const totalInstallments = currentSale.installments
+        .filter(inst => inst.enabled)
+        .reduce((sum, inst) => sum + (inst.amount || 0), 0);
 
-      setCurrentSale((prev) => ({
+      const dueAmount = Math.max(0, total - totalInstallments);
+      
+      setCurrentSale(prev => ({
         ...prev,
         total,
+        dueAmount
       }));
     }
-  }, [
-    currentSale.price,
-    currentSale.transportCost,
-    currentSale.insurance,
-    currentSale.finance,
-    currentSale.repair,
-    currentSale.penalty,
-  ]);
+  }, [ ]);
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value, type } = e.target;
-
-    if (type === "number") {
-      setCurrentSale({
-        ...currentSale,
-        [name]: value === "" ? 0 : parseFloat(value),
-      });
-    } else if (type === "checkbox") {
-      setCurrentSale({
-        ...currentSale,
-        [name]: (e.target as HTMLInputElement).checked,
-      });
-    } else {
-      setCurrentSale({
-        ...currentSale,
-        [name]: value,
-      });
-    }
-  };
-
-  const handleInstallmentChange = (
-    index: number,
-    field: string,
-    value: string
-  ) => {
+  const handleInstallmentChange = (index: number, field: string, value: any) => {
     const updatedInstallments = [...currentSale.installments];
-    updatedInstallments[index] = {
-      ...updatedInstallments[index],
-      [field]:
-        field === "enabled"
-          ? value
-          : field === "date"
-          ? value
-          : parseFloat(value),
-    };
+    
+    if (field === 'enabled') {
+      if (value && !updatedInstallments[index].date) {
+        updatedInstallments[index] = {
+          ...updatedInstallments[index],
+          date: format(new Date(), "yyyy-MM-dd"),
+          enabled: value
+        };
+      } else {
+        updatedInstallments[index] = {
+          ...updatedInstallments[index],
+          enabled: value
+        };
+      }
+    } else if (field === 'date') {
+      updatedInstallments[index] = {
+        ...updatedInstallments[index],
+        date: value
+      };
+    } else if (field === 'amount') {
+      updatedInstallments[index] = {
+        ...updatedInstallments[index],
+        amount: value === '' ? 0 : parseFloat(value)
+      };
+    }
 
     setCurrentSale({
       ...currentSale,
-      installments: updatedInstallments,
+      installments: updatedInstallments
     });
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value, type } = e.target;
+    
+    if (type === 'number') {
+      setCurrentSale(prev => ({
+        ...prev,
+        [name]: value === '' ? 0 : parseFloat(value)
+      }));
+    } else if (name === 'labelColor') {
+      setLabelColor(value);
+    } else if (type === 'checkbox') {
+      setCurrentSale(prev => ({
+        ...prev,
+        [name]: (e.target as HTMLInputElement).checked
+      }));
+    } else {
+      setCurrentSale(prev => ({
+        ...prev,
+        [name]: value
+      }));
+    }
   };
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -188,7 +197,7 @@ const Sales = () => {
         setPhotoPreview(photoUrl);
         setCurrentSale({
           ...currentSale,
-          photoUrl,
+          photoUrl
         });
       };
       reader.readAsDataURL(file);
@@ -199,45 +208,62 @@ const Sales = () => {
     if (!currentSale.party || !currentSale.vehicleNo || !currentSale.model) {
       toast({
         title: "Error",
-        description:
-          "Please fill in all required fields: Party, Vehicle No, and Model",
-        variant: "destructive",
+        description: "Please fill in all required fields: Party, Vehicle No, and Model",
+        variant: "destructive"
       });
       return;
     }
 
     try {
       const updatedSales = [...sales];
-
+      
       if (currentSale.id) {
-        // Update existing
         const updatedSale = await updateSale(currentSale as VehicleSale);
-        const index = updatedSales.findIndex((s) => s.id === updatedSale.id);
+        const index = updatedSales.findIndex(s => s.id === updatedSale.id);
         updatedSales[index] = updatedSale;
+        
+        if (updatedSale.dueAmount > 0) {
+          const duePayments = await getDuePayments();
+          const existingDuePayment = duePayments.find(dp => dp.vehicleNo === updatedSale.vehicleNo);
+          
+          if (existingDuePayment) {
+            await updateDuePayment({
+              ...existingDuePayment,
+              dueAmount: updatedSale.dueAmount,
+              dueDate: updatedSale.dueDate,
+              party: updatedSale.party,
+              model: updatedSale.model,
+              contact: updatedSale.phone,
+              address: updatedSale.address
+            });
+          }
+        }
+        
         toast({
           title: "Sale Updated",
-          description: `Sale for ${updatedSale.party} has been updated.`,
+          description: `Sale to ${updatedSale.party} has been updated.`
         });
       } else {
-        // Add new
         const newSale = await addSale(currentSale);
         updatedSales.push(newSale);
-        setCurrentSale(newSale);
+        setCurrentSale({
+          ...newSale,
+          manualId: newSale.manualId || newSale.id?.toString() || ""
+        });
         setCurrentIndex(updatedSales.length - 1);
         toast({
           title: "Sale Added",
-          description: `New sale for ${newSale.party} has been added.`,
+          description: `New sale to ${newSale.party} has been added.`
         });
       }
-
+      
       setSales(updatedSales);
-      setFilteredSales(updatedSales);
     } catch (error) {
       console.error("Error saving sale:", error);
       toast({
         title: "Error",
         description: "Failed to save sale",
-        variant: "destructive",
+        variant: "destructive"
       });
     }
   };
@@ -246,28 +272,24 @@ const Sales = () => {
     setCurrentSale({
       ...emptySale,
       date: format(new Date(), "yyyy-MM-dd"),
-      dueDate: format(
-        new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-        "yyyy-MM-dd"
-      ),
+      dueDate: format(new Date(), "yyyy-MM-dd"),
+      installments: emptySale.installments
     });
     setCurrentIndex(-1);
     setPhotoPreview(null);
-    setSearchTerm("");
   };
 
   const handleDelete = async () => {
     if (!currentSale.id) return;
-
+    
     if (window.confirm("Are you sure you want to delete this sale?")) {
       try {
         const deleted = await deleteSale(currentSale.id);
-
+        
         if (deleted) {
-          const updatedSales = sales.filter((s) => s.id !== currentSale.id);
+          const updatedSales = sales.filter(s => s.id !== currentSale.id);
           setSales(updatedSales);
-          setFilteredSales(updatedSales);
-
+          
           if (updatedSales.length > 0) {
             setCurrentSale(updatedSales[0]);
             setCurrentIndex(0);
@@ -275,10 +297,10 @@ const Sales = () => {
           } else {
             handleNew();
           }
-
+          
           toast({
             title: "Sale Deleted",
-            description: "The sale has been deleted successfully.",
+            description: "The sale has been deleted successfully."
           });
         }
       } catch (error) {
@@ -286,679 +308,1071 @@ const Sales = () => {
         toast({
           title: "Error",
           description: "Failed to delete sale",
-          variant: "destructive",
+          variant: "destructive"
         });
       }
     }
   };
 
+  const handleClearSearch = () => {
+    setSearchQuery("");
+    setSearchResults([]);
+    setShowSearchResults(false);
+  };
+
+  const addToSearchHistory = (query: string) => {
+    if (!query.trim()) return;
+    
+    const newItem = { query, timestamp: Date.now() };
+    const existingIndex = searchHistory.findIndex(item => item.query.toLowerCase() === query.toLowerCase());
+    
+    let updatedHistory;
+    if (existingIndex >= 0) {
+      updatedHistory = [...searchHistory];
+      updatedHistory[existingIndex] = newItem;
+    } else {
+      updatedHistory = [newItem, ...searchHistory];
+    }
+    
+    if (updatedHistory.length > 20) {
+      updatedHistory = updatedHistory.slice(0, 20);
+    }
+    
+    setSearchHistory(updatedHistory);
+    localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(updatedHistory));
+  };
+
+  const handleSearch = () => {
+    if (!searchQuery.trim()) return;
+    
+    addToSearchHistory(searchQuery);
+    
+    const searchLower = searchQuery.toLowerCase();
+    const results = sales.filter(sale => 
+      sale.party.toLowerCase().includes(searchLower) ||
+      sale.vehicleNo.toLowerCase().includes(searchLower) ||
+      sale.phone.includes(searchLower) ||
+      sale.model.toLowerCase().includes(searchLower) ||
+      sale.chassis.toLowerCase().includes(searchLower) ||
+      sale.address.toLowerCase().includes(searchLower) ||
+      sale.remark?.toLowerCase().includes(searchLower)
+    );
+    
+    setSearchResults(results);
+    setShowSearchResults(results.length > 0);
+    
+    if (results.length > 0) {
+      const foundSale = results[0];
+      const saleIndex = sales.findIndex(s => s.id === foundSale.id);
+      setCurrentSale(foundSale);
+      setCurrentIndex(saleIndex);
+      setPhotoPreview(foundSale.photoUrl || null);
+      toast({
+        title: "Search Results",
+        description: `Found ${results.length} matching records`
+      });
+    } else {
+      toast({
+        title: "No Results",
+        description: "No matching records found"
+      });
+    }
+  };
+
+
+
+  const handlePrint = () => {
+    const printContent = printRef.current;
+    if (!printContent) return;
+    
+    const originalContents = document.body.innerHTML;
+    const printStyles = `
+      <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        h2 { text-align: center; margin-bottom: 20px; }
+        .print-section { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .print-field { margin-bottom: 10px; }
+        .print-label { font-weight: bold; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        .photo { max-width: 200px; max-height: 200px; }
+      </style>
+    `;
+    
+    const printContents = `
+      <html>
+        <head>
+          <title>Sale Details - ${currentSale.party}</title>
+          ${printStyles}
+        </head>
+        <body>
+          <h2>Sale Record - ${currentSale.id || 'New'}</h2>
+          <div class="print-section">
+            <div>
+              <div class="print-field">
+                <span class="print-label">Date:</span> ${currentSale.date}
+              </div>
+              <div class="print-field">
+                <span class="print-label">Party:</span> ${currentSale.party}
+              </div>
+              <div class="print-field">
+                <span class="print-label">Address:</span> ${currentSale.address}
+              </div>
+              <div class="print-field">
+                <span class="print-label">Phone:</span> ${currentSale.phone}
+              </div>
+              <div class="print-field">
+                <span class="print-label">Model:</span> ${currentSale.model}
+              </div>
+              <div class="print-field">
+                <span class="print-label">Vehicle No:</span> ${currentSale.vehicleNo}
+              </div>
+              <div class="print-field">
+                <span class="print-label">Chassis:</span> ${currentSale.chassis}
+              </div>
+            </div>
+            <div>
+              ${photoPreview ? `<img src="${photoPreview}" alt="Vehicle" class="photo" />` : ''}
+            </div>
+          </div>
+          
+          <div class="print-field">
+            <span class="print-label">Total Amount:</span> ${currentSale.total}
+          </div>
+          <div class="print-field">
+            <span class="print-label">Due Amount:</span> ${currentSale.dueAmount}
+          </div>
+          
+          <h3>Payment Details</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${currentSale.installments
+                .filter(inst => inst.enabled)
+                .map(inst => `
+                  <tr>
+                    <td>${inst.date}</td>
+                    <td>${inst.amount}</td>
+                  </tr>
+                `).join('')
+              }
+            </tbody>
+          </table>
+          
+          <div class="print-field">
+            <span class="print-label">Witness:</span> ${currentSale.witness}
+          </div>
+          <div class="print-field">
+            <span class="print-label">Witness Address:</span> ${currentSale.witnessAddress}
+          </div>
+          <div class="print-field">
+            <span class="print-label">Witness Contact:</span> ${currentSale.witnessContact}
+          </div>
+        </body>
+      </html>
+    `;
+    
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.open();
+      printWindow.document.write(printContents);
+      printWindow.document.close();
+      printWindow.focus();
+      setTimeout(() => {
+        printWindow.print();
+        printWindow.close();
+      }, 250);
+    } else {
+      document.body.innerHTML = printContents;
+      window.print();
+      document.body.innerHTML = originalContents;
+    }
+  };
+
+  const handleAddPhoto = () => {
+    photoInputRef.current?.click();
+  };
+
+  const handleViewPhoto = () => {
+    if (photoPreview) {
+      setShowPhotoModal(true);
+    }
+  };
+
+  const handleExportToExcel = () => {
+    try {
+      exportSalesToExcel(sales);
+      toast({
+        title: "Export Successful",
+        description: "Sales data has been exported to Excel"
+      });
+    } catch (error) {
+      console.error("Error exporting to Excel:", error);
+      toast({
+        title: "Export Failed",
+        description: "An error occurred while exporting data to Excel",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleImportFromFile = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    try {
+      const importedSales = await importSalesFromExcel(file);
+      
+      if (window.confirm(`Import ${importedSales.length} sale records?`)) {
+        let successCount = 0;
+        let failCount = 0;
+        
+        for (const sale of importedSales) {
+          try {
+            await addSale(sale);
+            successCount++;
+          } catch (error) {
+            console.error("Error importing sale:", error);
+            failCount++;
+          }
+        }
+        
+        const updatedSales = await getSales();
+        setSales(updatedSales);
+        
+        if (updatedSales.length > 0) {
+          setCurrentSale(updatedSales[0]);
+          setCurrentIndex(0);
+          setPhotoPreview(updatedSales[0].photoUrl || null);
+        }
+        
+        toast({
+          title: "Import Complete",
+          description: `Successfully imported ${successCount} records. Failed: ${failCount}`
+        });
+      }
+    } catch (error) {
+      console.error("Error parsing import file:", error);
+      toast({
+        title: "Import Failed",
+        description: "Failed to parse the import file. Please check the file format.",
+        variant: "destructive"
+      });
+    }
+    
+    e.target.value = '';
+  };
+
   const navigateFirst = () => {
-    if (filteredSales.length > 0) {
-      setCurrentSale(filteredSales[0]);
+    if (sales.length > 0) {
+      const firstSale = sales[0];
+      setCurrentSale({
+        ...firstSale,
+        manualId: firstSale.manualId || firstSale.id?.toString() || ""
+      });
       setCurrentIndex(0);
-      setPhotoPreview(filteredSales[0].photoUrl || null);
+      setPhotoPreview(firstSale.photoUrl || null);
     }
   };
 
   const navigatePrev = () => {
     if (currentIndex > 0) {
-      setCurrentSale(filteredSales[currentIndex - 1]);
+      const prevSale = sales[currentIndex - 1];
+      setCurrentSale({
+        ...prevSale,
+        manualId: prevSale.manualId || prevSale.id?.toString() || ""
+      });
       setCurrentIndex(currentIndex - 1);
-      setPhotoPreview(filteredSales[currentIndex - 1].photoUrl || null);
+      setPhotoPreview(prevSale.photoUrl || null);
     }
   };
 
   const navigateNext = () => {
-    if (currentIndex < filteredSales.length - 1) {
-      setCurrentSale(filteredSales[currentIndex + 1]);
+    if (currentIndex < sales.length - 1) {
+      const nextSale = sales[currentIndex + 1];
+      setCurrentSale({
+        ...nextSale,
+        manualId: nextSale.manualId || nextSale.id?.toString() || ""
+      });
       setCurrentIndex(currentIndex + 1);
-      setPhotoPreview(filteredSales[currentIndex + 1].photoUrl || null);
+      setPhotoPreview(nextSale.photoUrl || null);
     }
   };
 
   const navigateLast = () => {
-    if (filteredSales.length > 0) {
-      setCurrentSale(filteredSales[filteredSales.length - 1]);
-      setCurrentIndex(filteredSales.length - 1);
-      setPhotoPreview(filteredSales[filteredSales.length - 1].photoUrl || null);
+    if (sales.length > 0) {
+      const lastSale = sales[sales.length - 1];
+      setCurrentSale({
+        ...lastSale,
+        manualId: lastSale.manualId || lastSale.id?.toString() || ""
+      });
+      setCurrentIndex(sales.length - 1);
+      setPhotoPreview(lastSale.photoUrl || null);
     }
   };
 
-  const handleRecordSelect = (index: number) => {
-    setCurrentSale(filteredSales[index]);
-    setCurrentIndex(index);
-    setPhotoPreview(filteredSales[index].photoUrl || null);
+// Update your keybinding handlers
+const handleKeyBindsChange = (binds: KeyBind[]) => {
+  // Save to localStorage
+  localStorage.setItem("app_keybinds", JSON.stringify(binds));
+  
+  // Register the key bindings with proper handlers
+  registerKeyBindings(binds.map(bind => ({
+    ...bind,
+    handler: () => {
+      switch (bind.id) {
+        case 'search':
+          handleSearch();
+          break;
+        case 'new':
+          handleNew();
+          break;
+        case 'save':
+          handleSave();
+          break;
+        case 'delete':
+          handleDelete();
+          break;
+        case 'first':
+          navigateFirst();
+          break;
+        case 'last':
+          navigateLast();
+          break;
+        case 'prev':
+          navigatePrev();
+          break;
+        case 'next':
+          navigateNext();
+          break;
+        case 'search_prev':
+          if (searchResults.length > 0) {
+            const currentIndex = searchResults.findIndex(s => s.id === currentSale.id);
+            const prevIndex = currentIndex > 0 ? currentIndex - 1 : searchResults.length - 1;
+            const prevResult = searchResults[prevIndex];
+            const saleIndex = sales.findIndex(s => s.id === prevResult.id);
+            setCurrentSale(prevResult);
+            setCurrentIndex(saleIndex);
+            setPhotoPreview(prevResult.photoUrl || null);
+          }
+          break;
+        case 'search_next':
+          if (searchResults.length > 0) {
+            const currentIndex = searchResults.findIndex(s => s.id === currentSale.id);
+            const nextIndex = currentIndex < searchResults.length - 1 ? currentIndex + 1 : 0;
+            const nextResult = searchResults[nextIndex];
+            const saleIndex = sales.findIndex(s => s.id === nextResult.id);
+            setCurrentSale(nextResult);
+            setCurrentIndex(saleIndex);
+            setPhotoPreview(nextResult.photoUrl || null);
+          }
+          break;
+        case 'print':
+          handlePrint();
+          break;
+        case 'export':
+          handleExportToExcel();
+          break;
+      }
+    }
+  })));
+};
+
+// Update your useEffect for keybindings initialization
+useEffect(() => {
+  const initialize = async () => {
+    try {
+      // Load sales data
+      const loadedSales = await getSales();
+      setSales(loadedSales);
+      if (loadedSales.length > 0) {
+        const firstSale = loadedSales[0];
+        setCurrentSale({
+          ...firstSale,
+          manualId: firstSale.manualId || firstSale.id?.toString() || "",
+          installments: firstSale.installments || emptySale.installments
+        });
+        setCurrentIndex(0);
+        setPhotoPreview(firstSale.photoUrl || null);
+      }
+
+      // Load keybindings
+      const savedBinds = loadKeyBindings();
+      const bindingsToUse = savedBinds || DEFAULT_KEYBINDS;
+      
+      // Register keybindings with handlers
+      handleKeyBindsChange(bindingsToUse);
+    } catch (error) {
+      console.error("Error initializing:", error);
+      toast({
+        title: "Error",
+        description: "Failed to initialize data",
+        variant: "destructive"
+      });
+    }
   };
 
+  initialize();
+
+  return () => {
+    unregisterKeyBindings();
+  };
+}, []);
   return (
-    <div className="h-full p-4 bg-white">
-      {/* Navigation and Search */}
-      <div className="flex flex-col gap-4 mb-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <Button
-              variant="outline"
-              onClick={navigateFirst}
-              disabled={filteredSales.length === 0 || currentIndex === 0}
-            >
-              First
-            </Button>
-            <Button
-              variant="outline"
-              onClick={navigatePrev}
-              disabled={filteredSales.length === 0 || currentIndex <= 0}
-            >
-              Prev
-            </Button>
-            <Button
-              variant="outline"
-              onClick={navigateNext}
-              disabled={
-                filteredSales.length === 0 ||
-                currentIndex >= filteredSales.length - 1
-              }
-            >
-              Next
-            </Button>
-            <Button
-              variant="outline"
-              onClick={navigateLast}
-              disabled={
-                filteredSales.length === 0 ||
-                currentIndex === filteredSales.length - 1
-              }
-            >
-              Last
-            </Button>
-          </div>
-
-          {/* Record counter */}
-          <div className="text-sm bg-gray-100 px-3 py-1 rounded">
-            {filteredSales.length > 0
-              ? `Record ${currentIndex + 1} of ${filteredSales.length}`
-              : "No records found"}
-          </div>
-
-          <div className="flex items-center space-x-2">
-            <Button variant="outline" onClick={handleNew}>
-              Add
-            </Button>
-            <Button
-              variant="outline"
-              onClick={handleDelete}
-              disabled={!currentSale.id}
-            >
-              Del
-            </Button>
-            <Button variant="outline" onClick={handleSave}>
-              Save
-            </Button>
-          </div>
-        </div>
-
-        {/* Search input */}
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <Input
-            type="search"
-            placeholder="Search by party, vehicle no, or model..."
-            className="pl-10"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+    <div className="h-full p-4 bg-white overflow-auto">
+      <div className="flex flex-wrap items-center justify-between mb-4 gap-2 sticky top-0 bg-white z-10 pb-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button 
+            variant="outline" 
+            onClick={navigateFirst}
+            disabled={sales.length === 0 || currentIndex === 0}
+            size="sm"
+          >
+            First
+          </Button>
+          <Button 
+            variant="outline" 
+            onClick={navigatePrev}
+            disabled={sales.length === 0 || currentIndex <= 0}
+            size="sm"
+          >
+            Prev
+          </Button>
+          <Button 
+            variant="outline" 
+            onClick={navigateNext}
+            disabled={sales.length === 0 || currentIndex >= sales.length - 1}
+            size="sm"
+          >
+            Next
+          </Button>
+          <Button 
+            variant="outline" 
+            onClick={navigateLast}
+            disabled={sales.length === 0 || currentIndex === sales.length - 1}
+            size="sm"
+          >
+            Last
+          </Button>
+          <Button 
+            variant="outline" 
+            onClick={handleNew}
+            size="sm"
+          >
+            Add
+          </Button>
+          <Button 
+            variant="outline" 
+            onClick={handleDelete}
+            disabled={!currentSale.id}
+            size="sm"
+          >
+            Del
+          </Button>
+          <Button 
+            variant="outline" 
+            onClick={handleSave}
+            size="sm"
+          >
+            Save
+          </Button>
+          <Button 
+            variant="outline" 
+            onClick={handlePrint}
+            size="sm"
+          >
+            <Printer className="h-4 w-4 mr-2" /> Print
+          </Button>
+          <Button 
+            variant="outline" 
+            onClick={handleExportToExcel}
+            className="bg-green-50"
+            size="sm"
+          >
+            <FileDown className="h-4 w-4 mr-2" /> Export Excel
+          </Button>
+          <Button 
+            variant="outline" 
+            onClick={handleImportFromFile}
+            className="bg-blue-50"
+            size="sm"
+          >
+            <FileUp className="h-4 w-4 mr-2" /> Import
+          </Button>
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            accept=".xlsx,.xls,.csv"
+            style={{ display: 'none' }}
           />
         </div>
 
-        {/* Record selector dropdown */}
-        {filteredSales.length > 0 && (
-          <select
-            className="border rounded p-2 text-sm w-full"
-            value={currentIndex}
-            onChange={(e) => handleRecordSelect(Number(e.target.value))}
-          >
-            {filteredSales.map((sale, index) => (
-              <option key={sale.id} value={index}>
-                {sale.party} - {sale.vehicleNo} ({sale.model})
-              </option>
-            ))}
-          </select>
-        )}
-      </div>
-
-      {/* Form */}
-      <div className="grid grid-cols-4 gap-4 h-[calc(100vh-220px)]">
-        {/* Left column */}
-        <div className="col-span-3 bg-app-blue p-4 rounded">
-          {/* Transaction Details */}
-          <div className="mb-4">
-            <h3 className="vehicle-form-label mb-2">Transaction Details</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="flex">
-                <label className="vehicle-form-label w-20">No</label>
-                <Input
-                  value={currentSale.id || ""}
-                  readOnly
-                  className="vehicle-input flex-1"
+        <div className="flex items-center gap-2 flex-wrap">
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" className="h-9 w-9 p-0">
+                <span className="sr-only">Color picker</span>
+                <div 
+                  className="h-5 w-5 rounded-full border border-gray-300"
+                  style={{ backgroundColor: labelColor }}
                 />
-              </div>
-              <div className="flex">
-                <label className="vehicle-form-label w-20">Date</label>
-                <Input
-                  type="date"
-                  name="date"
-                  value={currentSale.date}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-64">
+              <div className="space-y-2">
+                <h4 className="font-medium text-sm">Label Background Color</h4>
+                <Input 
+                  type="color" 
+                  value={labelColor} 
+                  name="labelColor"
                   onChange={handleInputChange}
-                  className="vehicle-input flex-1"
+                  className="h-8 w-full"
                 />
               </div>
-            </div>
-          </div>
-
-          {/* Party Details */}
-          <div className="mb-4">
-            <h3 className="vehicle-form-label mb-2">Party Details</h3>
-            <div className="space-y-2">
-              <div className="flex">
-                <label className="vehicle-form-label w-20">Party</label>
-                <Input
-                  name="party"
-                  value={currentSale.party}
-                  onChange={handleInputChange}
-                  className="vehicle-input flex-1"
-                />
+            </PopoverContent>
+          </Popover>
+          
+          <div className="flex relative">
+            <Popover open={showSearchResults && searchResults.length > 0} onOpenChange={setShowSearchResults}>
+              <div className="flex items-center">
+                <div className="relative flex w-full items-center">
+                  <Input
+                    placeholder="Search by party, vehicle no, phone..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-[200px] sm:min-w-[270px] pr-8"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        handleSearch();
+                      }
+                    }}
+                  />
+                  {searchQuery && (
+                    <button 
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      onClick={handleClearSearch}
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+                <Button 
+                  variant="outline" 
+                  onClick={handleSearch}
+                  className="ml-1"
+                  size="sm"
+                >
+                  <Search className="h-4 w-4" />
+                </Button>
+                
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="ml-1" size="sm">
+                      <History className="h-4 w-4" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[300px] p-0">
+                    <div className="max-h-[300px] overflow-y-auto py-2">
+                      <div className="flex items-center justify-between px-3 py-1.5">
+                        <h4 className="text-sm font-medium">Search History</h4>
+                        <button 
+                          className="text-xs text-gray-500 hover:text-gray-900"
+                          onClick={() => {
+                            setSearchHistory([]);
+                            localStorage.removeItem(SEARCH_HISTORY_KEY);
+                          }}
+                        >
+                          Clear All
+                        </button>
+                      </div>
+                      {searchHistory.length > 0 ? (
+                        <div className="mt-1">
+                          {searchHistory.map((item, index) => (
+                            <div key={index} className="flex items-center justify-between px-3 py-2 hover:bg-gray-100">
+                              <button
+                                className="flex w-full text-left text-sm"
+                                onClick={() => {
+                                  setSearchQuery(item.query);
+                                  setShowSearchResults(false);
+                                  setTimeout(() => {
+                                    handleSearch();
+                                  }, 100);
+                                }}
+                              >
+                                <span className="flex items-center">
+                                  <History className="mr-2 h-3 w-3 text-gray-400" />
+                                  {item.query}
+                                </span>
+                              </button>
+                              <button
+                                className="ml-2 text-gray-400 hover:text-gray-600"
+                                onClick={() => {
+                                  const newHistory = searchHistory.filter((_, i) => i !== index);
+                                  setSearchHistory(newHistory);
+                                  localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(newHistory));
+                                }}
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="px-3 py-2 text-sm text-gray-500">No recent searches</div>
+                      )}
+                    </div>
+                  </PopoverContent>
+                </Popover>
               </div>
-              <div className="flex">
-                <label className="vehicle-form-label w-20">Add.</label>
-                <Input
-                  name="address"
-                  value={currentSale.address}
-                  onChange={handleInputChange}
-                  className="vehicle-input flex-1"
-                />
-              </div>
-              <div className="flex">
-                <label className="vehicle-form-label w-20">Ph</label>
-                <Input
-                  name="phone"
-                  value={currentSale.phone}
-                  onChange={handleInputChange}
-                  className="vehicle-input flex-1"
-                />
-              </div>
-              <div className="flex">
-                <label className="vehicle-form-label w-20">Rem</label>
-                <Input
-                  name="remark"
-                  value={currentSale.remark}
-                  onChange={handleInputChange}
-                  className="vehicle-input flex-1"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Vehicle Details */}
-          <div className="mb-4">
-            <h3 className="vehicle-form-label mb-2">Vehicle Details</h3>
-            <div className="space-y-2">
-              <div className="flex">
-                <label className="vehicle-form-label w-20">Model</label>
-                <Input
-                  name="model"
-                  value={currentSale.model}
-                  onChange={handleInputChange}
-                  className="vehicle-input flex-1"
-                />
-              </div>
-              <div className="flex">
-                <label className="vehicle-form-label w-20">Vehi.</label>
-                <Input
-                  name="vehicleNo"
-                  value={currentSale.vehicleNo}
-                  onChange={handleInputChange}
-                  className="vehicle-input flex-1"
-                />
-              </div>
-              <div className="flex">
-                <label className="vehicle-form-label w-20">Chasis</label>
-                <Input
-                  name="chassis"
-                  value={currentSale.chassis}
-                  onChange={handleInputChange}
-                  className="vehicle-input flex-1"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Sales Details */}
-          <div className="mb-4">
-            <h3 className="vehicle-form-label mb-2">Sales Details</h3>
-
-            <div className="grid grid-cols-6 gap-1">
-              <div className="col-span-1 p-2 bg-app-blue text-white font-medium">
-                Item
-              </div>
-              <div className="col-span-1 p-2 bg-app-blue text-white font-medium">
-                Amount
-              </div>
-              <div className="col-span-2 p-2 bg-app-blue text-white font-medium">
-                Inst. Date
-              </div>
-              <div className="col-span-1 p-2 bg-app-blue text-white font-medium">
-                Inst. Amt
-              </div>
-              <div className="col-span-1 p-2 bg-app-blue text-white font-medium">
-                Paid
-              </div>
-
-              {/* Price */}
-              <div className="col-span-1 p-1 bg-app-blue text-white font-medium">
-                Price
-              </div>
-              <div className="col-span-1 p-1">
-                <Input
-                  type="number"
-                  name="price"
-                  value={currentSale.price}
-                  onChange={handleInputChange}
-                  className="vehicle-input"
-                />
-              </div>
-
-              {/* First Installment Row */}
-              <div className="col-span-2 p-1 flex items-center">
-                <Checkbox
-                  checked={currentSale.installments[0].enabled}
-                  onCheckedChange={(checked) =>
-                    handleInstallmentChange(0, "enabled", checked)
-                  }
-                  className="mr-2"
-                />
-                <Input
-                  type="date"
-                  value={currentSale.installments[0].date}
-                  onChange={(e) =>
-                    handleInstallmentChange(0, "date", e.target.value)
-                  }
-                  disabled={!currentSale.installments[0].enabled}
-                  className="vehicle-input flex-1"
-                />
-              </div>
-              <div className="col-span-1 p-1">
-                <Input
-                  type="number"
-                  value={currentSale.installments[0].amount}
-                  onChange={(e) =>
-                    handleInstallmentChange(0, "amount", e.target.value)
-                  }
-                  disabled={!currentSale.installments[0].enabled}
-                  className="vehicle-input"
-                />
-              </div>
-              <div className="col-span-1 p-1">
-                <Input
-                  type="number"
-                  value={currentSale.installments[0].paid}
-                  onChange={(e) =>
-                    handleInstallmentChange(0, "paid", e.target.value)
-                  }
-                  disabled={!currentSale.installments[0].enabled}
-                  className="vehicle-input"
-                />
-              </div>
-
-              {/* Transport */}
-              <div className="col-span-1 p-1 bg-app-blue text-white font-medium">
-                Trans
-              </div>
-              <div className="col-span-1 p-1">
-                <Input
-                  type="number"
-                  name="transportCost"
-                  value={currentSale.transportCost}
-                  onChange={handleInputChange}
-                  className="vehicle-input"
-                />
-              </div>
-
-              {/* Second Installment Row */}
-              <div className="col-span-2 p-1 flex items-center">
-                <Checkbox
-                  checked={currentSale.installments[1].enabled}
-                  onCheckedChange={(checked) =>
-                    handleInstallmentChange(1, "enabled", checked)
-                  }
-                  className="mr-2"
-                />
-                <Input
-                  type="date"
-                  value={currentSale.installments[1].date}
-                  onChange={(e) =>
-                    handleInstallmentChange(1, "date", e.target.value)
-                  }
-                  disabled={!currentSale.installments[1].enabled}
-                  className="vehicle-input flex-1"
-                />
-              </div>
-              <div className="col-span-1 p-1">
-                <Input
-                  type="number"
-                  value={currentSale.installments[1].amount}
-                  onChange={(e) =>
-                    handleInstallmentChange(1, "amount", e.target.value)
-                  }
-                  disabled={!currentSale.installments[1].enabled}
-                  className="vehicle-input"
-                />
-              </div>
-              <div className="col-span-1 p-1">
-                <Input
-                  type="number"
-                  value={currentSale.installments[1].paid}
-                  onChange={(e) =>
-                    handleInstallmentChange(1, "paid", e.target.value)
-                  }
-                  disabled={!currentSale.installments[1].enabled}
-                  className="vehicle-input"
-                />
-              </div>
-
-              {/* Insurance */}
-              <div className="col-span-1 p-1 bg-app-blue text-white font-medium">
-                Insur
-              </div>
-              <div className="col-span-1 p-1">
-                <Input
-                  type="number"
-                  name="insurance"
-                  value={currentSale.insurance}
-                  onChange={handleInputChange}
-                  className="vehicle-input"
-                />
-              </div>
-
-              {/* More rows follow the same pattern */}
-              <div className="col-span-2 p-1 flex items-center">
-                <Checkbox
-                  checked={currentSale.installments[3].enabled}
-                  onCheckedChange={(checked) =>
-                    handleInstallmentChange(1, "enabled", checked)
-                  }
-                  className="mr-2"
-                />
-                <Input
-                  type="date"
-                  value={currentSale.installments[3].date}
-                  onChange={(e) =>
-                    handleInstallmentChange(1, "date", e.target.value)
-                  }
-                  disabled={!currentSale.installments[3].enabled}
-                  className="vehicle-input flex-1"
-                />
-              </div>
-              <div className="col-span-1 p-1">
-                <Input
-                  type="number"
-                  value={currentSale.installments[3].amount}
-                  onChange={(e) =>
-                    handleInstallmentChange(1, "amount", e.target.value)
-                  }
-                  disabled={!currentSale.installments[3].enabled}
-                  className="vehicle-input"
-                />
-              </div>
-              <div className="col-span-1 p-1">
-                <Input
-                  type="number"
-                  value={currentSale.installments[3].paid}
-                  onChange={(e) =>
-                    handleInstallmentChange(1, "paid", e.target.value)
-                  }
-                  disabled={!currentSale.installments[3].enabled}
-                  className="vehicle-input"
-                />
-              </div>
-             
-
-              {/* Finance */}
-              <div className="col-span-1 p-1 bg-app-blue text-white font-medium">
-                Finan
-              </div>
-              <div className="col-span-1 p-1">
-                <Input
-                  type="number"
-                  name="finance"
-                  value={currentSale.finance}
-                  onChange={handleInputChange}
-                  className="vehicle-input"
-                />
-              </div>
-               {/* More rows follow the same pattern */}
-               <div className="col-span-2 p-1 flex items-center">
-                <Checkbox
-                  checked={currentSale.installments[4].enabled}
-                  onCheckedChange={(checked) =>
-                    handleInstallmentChange(1, "enabled", checked)
-                  }
-                  className="mr-2"
-                />
-                <Input
-                  type="date"
-                  value={currentSale.installments[4].date}
-                  onChange={(e) =>
-                    handleInstallmentChange(1, "date", e.target.value)
-                  }
-                  disabled={!currentSale.installments[4].enabled}
-                  className="vehicle-input flex-1"
-                />
-              </div>
-              <div className="col-span-1 p-1">
-                <Input
-                  type="number"
-                  value={currentSale.installments[4].amount}
-                  onChange={(e) =>
-                    handleInstallmentChange(1, "amount", e.target.value)
-                  }
-                  disabled={!currentSale.installments[4].enabled}
-                  className="vehicle-input"
-                />
-              </div>
-              <div className="col-span-1 p-1">
-                <Input
-                  type="number"
-                  value={currentSale.installments[4].paid}
-                  onChange={(e) =>
-                    handleInstallmentChange(1, "paid", e.target.value)
-                  }
-                  disabled={!currentSale.installments[4].enabled}
-                  className="vehicle-input"
-                />
-              </div>
-
-              {/* Repair */}
-              <div className="col-span-1 p-1 bg-app-blue text-white font-medium">
-                Repair
-              </div>
-              <div className="col-span-1 p-1">
-                <Input
-                  type="number"
-                  name="repair"
-                  value={currentSale.repair}
-                  onChange={handleInputChange}
-                  className="vehicle-input"
-                />
-              </div>
-
-              {/* Penalt */}
-              <div className="col-span-1 p-1 bg-app-blue text-white font-medium">
-                Penalt
-              </div>
-              <div className="col-span-1 p-1">
-                <Input
-                  type="number"
-                  name="penalty"
-                  value={currentSale.penalty}
-                  onChange={handleInputChange}
-                  className="vehicle-input"
-                />
-              </div>
-
-              {/* Total */}
-              <div className="col-span-1 p-1 bg-app-blue text-white font-medium">
-                Total
-              </div>
-              <div className="col-span-1 p-1">
-                <Input
-                  type="number"
-                  name="total"
-                  value={currentSale.total}
-                  readOnly
-                  className="vehicle-input"
-                />
-              </div>
-
-              {/* Due DT */}
-              <div className="col-span-1 p-1 bg-app-blue text-white font-medium">
-                Due DT
-              </div>
-              <div className="col-span-1 p-1 flex items-center">
-                <Checkbox className="mr-2" checked={!!currentSale.dueDate} />
-                <Input
-                  type="date"
-                  name="dueDate"
-                  value={currentSale.dueDate}
-                  onChange={handleInputChange}
-                  className="vehicle-input flex-1"
-                />
-              </div>
-
-              {/* Due Amt */}
-              <div className="col-span-1 p-1 bg-app-blue text-white font-medium">
-                Due Amt
-              </div>
-              <div className="col-span-1 p-1">
-                <Input
-                  type="number"
-                  name="dueAmount"
-                  value={currentSale.dueAmount}
-                  onChange={handleInputChange}
-                  className="vehicle-input"
-                />
-              </div>
-
-              {/* Remind */}
-              <div className="col-span-1 p-1 bg-app-blue text-white font-medium">
-                Remind
-              </div>
-              <div className="col-span-1 p-1">
-                <Input
-                  type="time"
-                  name="reminder"
-                  value={currentSale.reminder}
-                  onChange={handleInputChange}
-                  className="vehicle-input"
-                />
-              </div>
-            </div>
+              <PopoverContent className="w-[300px] p-0">
+                <div className="max-h-[300px] overflow-y-auto py-2">
+                  <div className="flex items-center justify-between px-3 py-1">
+                    <h4 className="text-sm font-medium">Search Results ({searchResults.length})</h4>
+                  </div>
+                  {searchResults.length > 0 ? (
+                    <div className="mt-1">
+                      {searchResults.map((result, index) => (
+                        <button
+                          key={index}
+                          className="flex w-full items-center px-3 py-2 text-sm hover:bg-gray-100"
+                          onClick={() => {
+                            const resultIndex = sales.findIndex(s => s.id === result.id);
+                            setCurrentSale(result);
+                            setCurrentIndex(resultIndex);
+                            setPhotoPreview(result.photoUrl || null);
+                            setShowSearchResults(false);
+                          }}
+                        >
+                          <div className="flex flex-col">
+                            <span className="font-medium">{result.party}</span>
+                            <span className="text-xs text-gray-500">
+                              {result.vehicleNo} • {result.model}
+                            </span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="px-3 py-2 text-sm text-gray-500">No matching records</div>
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
           </div>
         </div>
+      </div>
 
-        {/* Right column */}
-        <div className="col-span-1 bg-app-blue p-4 rounded flex flex-col">
-          {/* Photo */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 overflow-y-auto" ref={printRef} style={{ maxHeight: "calc(100vh - 140px)" }}>
+        <div className="col-span-2 p-4 rounded overflow-y-auto">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Basic Info Column */}
+            <div>
+              <div className="mb-4">
+                <h3 className="mb-2" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>
+                  Transaction Details
+                </h3>
+                <div className="space-y-2">
+                  <div className="flex">
+                    <label className="w-20" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>No</label>
+                    <Input 
+                      name="manualId"
+                      value={currentSale.manualId || currentSale.id?.toString() || ''} 
+                      onChange={handleInputChange}
+                      className="flex-1"
+                    />
+                  </div>
+                  <div className="flex">
+                    <label className="w-20" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>Date</label>
+                    <Input 
+                      type="date" 
+                      name="date"
+                      value={currentSale.date} 
+                      onChange={handleInputChange}
+                      className="flex-1" 
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="mb-4">
+                <h3 className="mb-2" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>
+                  Party Details
+                </h3>
+                <div className="space-y-2">
+                  <div className="flex">
+                    <label className="w-20" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>Party</label>
+                    <Input 
+                      name="party"
+                      value={currentSale.party} 
+                      onChange={handleInputChange}
+                      className="flex-1" 
+                    />
+                  </div>
+                  <div className="flex">
+                    <label className="w-20" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>Add.</label>
+                    <Input 
+                      name="address"
+                      value={currentSale.address} 
+                      onChange={handleInputChange}
+                      className="flex-1" 
+                    />
+                  </div>
+                  <div className="flex">
+                    <label className="w-20" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>Ph</label>
+                    <Input 
+                      name="phone"
+                      value={currentSale.phone} 
+                      onChange={handleInputChange}
+                      className="flex-1" 
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="mb-4">
+                <h3 className="mb-2" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>
+                  Vehicle Details
+                </h3>
+                <div className="space-y-2">
+                  <div className="flex">
+                    <label className="w-20" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>Model</label>
+                    <Input 
+                      name="model"
+                      value={currentSale.model} 
+                      onChange={handleInputChange}
+                      className="flex-1" 
+                    />
+                  </div>
+                  <div className="flex">
+                    <label className="w-20" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>Veh. No</label>
+                    <Input 
+                      name="vehicleNo"
+                      value={currentSale.vehicleNo} 
+                      onChange={handleInputChange}
+                      className="flex-1" 
+                    />
+                  </div>
+                  <div className="flex">
+                    <label className="w-20" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>Chassis</label>
+                    <Input 
+                      name="chassis"
+                      value={currentSale.chassis} 
+                      onChange={handleInputChange}
+                      className="flex-1" 
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Cost Details Column */}
+            <div>
+              <div className="mb-4">
+                <h3 className="mb-2" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>
+                  Cost Details
+                </h3>
+                <div className="space-y-2">
+                  <div className="flex">
+                    <label className="w-20" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>Price</label>
+                    <Input 
+                      type="number" 
+                      name="price"
+                      value={currentSale.price || ''} 
+                      onChange={handleInputChange}
+                      className="flex-1" 
+                    />
+                  </div>
+                  <div className="flex">
+                    <label className="w-20" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>Trans.</label>
+                    <Input 
+                      type="number" 
+                      name="transportCost"
+                      value={currentSale.transportCost || ''} 
+                      onChange={handleInputChange}
+                      className="flex-1" 
+                    />
+                  </div>
+                  <div className="flex">
+                    <label className="w-20" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>Insur.</label>
+                    <Input 
+                      type="number" 
+                      name="insurance"
+                      value={currentSale.insurance || ''} 
+                      onChange={handleInputChange}
+                      className="flex-1" 
+                    />
+                  </div>
+                  <div className="flex">
+                    <label className="w-20" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>Finance</label>
+                    <Input 
+                      type="number" 
+                      name="finance"
+                      value={currentSale.finance || ''} 
+                      onChange={handleInputChange}
+                      className="flex-1" 
+                    />
+                  </div>
+                  <div className="flex">
+                    <label className="w-20" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>Repair</label>
+                    <Input 
+                      type="number" 
+                      name="repair"
+                      value={currentSale.repair || ''} 
+                      onChange={handleInputChange}
+                      className="flex-1" 
+                    />
+                  </div>
+                  <div className="flex">
+                    <label className="w-20" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>Penalty</label>
+                    <Input 
+                      type="number" 
+                      name="penalty"
+                      value={currentSale.penalty || ''} 
+                      onChange={handleInputChange}
+                      className="flex-1" 
+                    />
+                  </div>
+                  <div className="flex">
+                    <label className="w-20" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>Total</label>
+                    <Input 
+                      readOnly
+                      type="number" 
+                      name="total"
+                      value={currentSale.total || ''} 
+                      className="flex-1 bg-gray-50" 
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="mb-4">
+                <h3 className="mb-2" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>
+                  Due Details
+                </h3>
+                <div className="space-y-2">
+                  <div className="flex">
+                    <label className="w-20" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>Due Amt</label>
+                    <Input 
+                      type="number" 
+                      name="dueAmount"
+                      value={currentSale.dueAmount || ''} 
+                      onChange={handleInputChange}
+                      className="flex-1" 
+                    />
+                  </div>
+                  <div className="flex">
+                    <label className="w-20" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>Due Date</label>
+                    <Input 
+                      type="date" 
+                      name="dueDate"
+                      value={currentSale.dueDate} 
+                      onChange={handleInputChange}
+                      className="flex-1" 
+                    />
+                  </div>
+                  <div className="flex">
+                    <label className="w-20" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>Remind</label>
+                    <Input 
+                      type="time" 
+                      name="reminder"
+                      value={currentSale.reminder} 
+                      onChange={handleInputChange}
+                      className="flex-1" 
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Installments Grid */}
           <div className="mb-4">
-            <h3 className="vehicle-form-label mb-2">Photo:</h3>
-            <div className="bg-white h-48 mb-2 flex items-center justify-center">
+            <h3 className="mb-2" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>
+              Installments
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+              {currentSale.installments.map((installment, index) => (
+                <div key={index} className="border rounded p-2">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium">Installment {index + 1}</span>
+                    <Checkbox
+                      checked={installment.enabled}
+                      onCheckedChange={(checked) => handleInstallmentChange(index, 'enabled', checked)}
+                    />
+                  </div>
+                  {installment.enabled && (
+                    <>
+                      <div className="mb-2">
+                        <label className="block text-xs text-gray-500 mb-1">Date</label>
+                        <Input
+                          type="date"
+                          value={installment.date}
+                          onChange={(e) => handleInstallmentChange(index, 'date', e.target.value)}
+                          className="w-full text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">Amount</label>
+                        <Input
+                          type="number"
+                          value={installment.amount || ''}
+                          onChange={(e) => handleInstallmentChange(index, 'amount', e.target.value)}
+                          className="w-full text-sm"
+                        />
+                      </div>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+        </div>
+
+        {/* Photo Column */}
+        <div className="col-span-2 p-4 rounded bg-gray-50">
+          <div className="flex flex-col h-full">
+            <h3 className="mb-2" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>
+              Vehicle Photo
+            </h3>
+            
+            <div className="flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-md p-4 mb-4 relative">
               {photoPreview ? (
-                <img
-                  src={photoPreview}
-                  alt="Vehicle"
-                  className="max-h-full max-w-full object-contain"
-                />
+                <div className="relative w-full h-64 flex items-center justify-center">
+                  <div onClick={handleViewPhoto} className="cursor-pointer relative group">
+                    <img 
+                      src={photoPreview} 
+                      alt="Vehicle" 
+                      className="w-full h-64 object-contain rounded"
+                    />
+                      <ZoomIn className="h-8 w-8 text-white" />
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity rounded">
+                    </div>
+                  </div>
+                </div>
               ) : (
-                <span className="text-gray-400">No Photo</span>
+                <div className="text-center text-gray-500">
+                  <p>No photo available</p>
+                </div>
               )}
             </div>
-            <Input
-              type="file"
-              accept="image/*"
-              onChange={handlePhotoChange}
-              className="bg-white"
-            />
+          {/* Witness Details */}
+          <div className="mb-4">
+            <h3 className="mb-2" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>
+              Witness Details
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="flex">
+                <label className="w-20" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>Witness</label>
+                <Input 
+                  name="witness"
+                  value={currentSale.witness || ''} 
+                  onChange={handleInputChange}
+                  className="flex-1" 
+                />
+              </div>
+              <div className="flex">
+                <label className="w-20" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>Address</label>
+                <Input 
+                  name="witnessAddress"
+                  value={currentSale.witnessAddress || ''} 
+                  onChange={handleInputChange}
+                  className="flex-1" 
+                />
+              </div>
+              <div className="flex">
+                <label className="w-20" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>Contact</label>
+                <Input 
+                  name="witnessContact"
+                  value={currentSale.witnessContact || ''} 
+                  onChange={handleInputChange}
+                  className="flex-1" 
+                />
+              </div>
+              <div className="flex">
+                <label className="w-20" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>Wit. 2</label>
+                <Input 
+                  name="witnessName2"
+                  value={currentSale.witnessName2 || ''} 
+                  onChange={handleInputChange}
+                  className="flex-1" 
+                />
+              </div>
+            </div>
           </div>
 
-          {/* Witness Details */}
-          <div>
-            <h3 className="vehicle-form-label mb-2">Witness Details:</h3>
+          {/* Remarks */}
+          <div className="mb-4">
+            <h3 className="mb-2" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>
+              Remarks
+            </h3>
             <div className="space-y-2">
               <div className="flex">
-                <label className="vehicle-form-label w-20">Wit</label>
-                <Input
-                  name="witness"
-                  value={currentSale.witness}
-                  onChange={handleInputChange}
-                  className="vehicle-input flex-1"
-                />
-              </div>
-              <div className="flex">
-                <label className="vehicle-form-label w-20">Add</label>
-                <Input
-                  name="witnessAddress"
-                  value={currentSale.witnessAddress}
-                  onChange={handleInputChange}
-                  className="vehicle-input flex-1"
-                />
-              </div>
-              <div className="flex">
-                <label className="vehicle-form-label w-20">Con</label>
-                <Input
-                  name="witnessContact"
-                  value={currentSale.witnessContact}
-                  onChange={handleInputChange}
-                  className="vehicle-input flex-1"
-                />
-              </div>
-              <div className="flex">
-                <label className="vehicle-form-label w-20">Wit1</label>
-                <Input
-                  name="witnessName2"
-                  value={currentSale.witnessName2}
-                  onChange={handleInputChange}
-                  className="vehicle-input flex-1"
-                />
-              </div>
-              <div className="flex">
-                <label className="vehicle-form-label w-20">Rem</label>
-                <Input
+                <Input 
                   name="remark"
-                  value={currentSale.remark}
+                  value={currentSale.remark || ''} 
                   onChange={handleInputChange}
-                  className="vehicle-input flex-1"
+                  className="flex-1" 
                 />
               </div>
-              <div className="flex">
-                <label className="vehicle-form-label w-20">Rem1</label>
-                <Input className="vehicle-input flex-1" />
+              <div className="flex items-center">
+                <Checkbox 
+                  name="rcBook"
+                  checked={currentSale.rcBook}
+                  onCheckedChange={(checked) => {
+                    setCurrentSale({
+                      ...currentSale,
+                      rcBook: !!checked
+                    });
+                  }}
+                  className="mr-2"
+                />
+                <label>R.C. Book</label>
               </div>
             </div>
-
-            <div className="mt-4 flex items-center">
-              <Checkbox
-                name="rcBook"
-                checked={currentSale.rcBook}
-                onCheckedChange={(checked) => {
-                  setCurrentSale({
-                    ...currentSale,
-                    rcBook: !!checked,
-                  });
-                }}
-                className="mr-2"
-              />
-              <label>R.C. Book</label>
-            </div>
+          </div>
+            
+            <Button
+              variant="outline"
+              onClick={handleAddPhoto}
+              className="w-full bg-gray-100"
+            >
+              <Camera className="h-4 w-4 mr-2" /> 
+              {photoPreview ? "Change Photo" : "Add Photo"}
+            </Button>
+            
+            <input
+              type="file"
+              ref={photoInputRef}
+              onChange={handlePhotoChange}
+              accept="image/*"
+              style={{ display: 'none' }}
+            />
           </div>
         </div>
       </div>
+{/* 
+      {photoPreview && (
+        <ImagePreviewModal 
+          imageUrl={photoPreview} 
+          showCloseButton={true}
+          onClose={() => setShowPhotoModal(false)}
+          alt="Vehicle"
+          showModal={showPhotoModal}
+        />
+      )} */}
+      
     </div>
   );
 };

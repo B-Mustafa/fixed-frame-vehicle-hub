@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import NasConfig from "./NasConfig";
 import { Bike, BikeIcon, Factory, Instagram, InstagramIcon, LucideBike } from "lucide-react";
+import KeyBindDialog from "./KeyBindDialog";
 
 const Layout = () => {
   const { user, logout } = useAuth();
@@ -55,7 +56,19 @@ const Layout = () => {
   const handleBackup = async () => {
     try {
       const data = await createBackup();
-      setBackupData(data);
+      // Fix TypeScript error by handling the string | Blob correctly
+      if (typeof data === 'string') {
+        setBackupData(data);
+      } else {
+        // If it's a Blob, convert it to a string
+        const reader = new FileReader();
+        reader.onload = () => {
+          if (reader.result && typeof reader.result === 'string') {
+            setBackupData(reader.result);
+          }
+        };
+        reader.readAsText(data);
+      }
       setIsBackupDialogOpen(true);
     } catch (error) {
       toast({
@@ -134,17 +147,15 @@ const Layout = () => {
     <div className="flex flex-col h-screen">
       <header className="bg-white border-b border-gray-200 p-2">
         <div className="flex justify-between items-center">
-          <div className="flex items-center gap-2">
+          {/* <div className="flex items-center gap-2">
             <h1 className="text-xl font-semibold">Kesari Auto Center</h1>
             <span className="text-sm text-gray-500">Version 2.0.0</span>
-          </div>
+          </div> */}
           <div className="flex items-center gap-2">
             <span className="text-sm text-gray-600">User: {user.username}</span>
             <Button variant="outline" size="sm" onClick={handleLogout}>
               Logout
             </Button>
-          </div>
-        </div>
         <div className="flex mt-2 items-center">
           <nav className="flex-1">
             <ul className="flex space-x-4">
@@ -178,6 +189,11 @@ const Layout = () => {
                   <span>Due List</span>
                 </Link>
               </li>
+              <li>
+                <Link to={"/admin"}>
+                  <Button variant="outline" size="sm">Admin Panel</Button>
+                </Link>
+              </li>
             </ul>
           </nav>
           <div>
@@ -200,6 +216,19 @@ const Layout = () => {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+          </div>
+        </div>
+          </div>
+          <div className="flex items-center space-x-2">
+            <KeyBindDialog />
+            
+            <Button
+              variant="outline"
+              onClick={handleLogout}
+              className="text-red-600"
+            >
+              Logout
+            </Button>
           </div>
         </div>
       </header>
