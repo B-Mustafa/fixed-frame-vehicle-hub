@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1075,3 +1076,311 @@ const Sales = () => {
                 </div>
                 <Button
                   variant="outline"
+                  onClick={handleSearch}
+                  className="ml-1"
+                  size="sm"
+                >
+                  <Search className="h-4 w-4" />
+                </Button>
+
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="ml-1" size="sm">
+                      <History className="h-4 w-4" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[300px] p-0">
+                    <div className="p-2">
+                      <h3 className="font-medium mb-1">Recent Searches</h3>
+                      {searchHistory.length === 0 ? (
+                        <p className="text-sm text-gray-500">No recent searches</p>
+                      ) : (
+                        <div className="flex flex-col space-y-1 max-h-[200px] overflow-y-auto">
+                          {searchHistory.map((item, index) => (
+                            <Button
+                              key={index}
+                              variant="ghost"
+                              className="justify-start h-8 px-2 text-left"
+                              onClick={() => {
+                                setSearchQuery(item.query);
+                                handleSearch();
+                              }}
+                            >
+                              <span className="truncate">{item.query}</span>
+                            </Button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
+              <PopoverContent
+                className="w-[350px] p-0"
+                align="start"
+                side="bottom"
+              >
+                <div className="p-2">
+                  <h3 className="font-medium mb-1">Search Results</h3>
+                  <div className="flex flex-col space-y-1 max-h-[300px] overflow-y-auto">
+                    {searchResults.map((result) => (
+                      <Button
+                        key={result.id}
+                        variant="ghost"
+                        className="justify-start h-auto text-left py-2"
+                        onClick={() => {
+                          const index = sales.findIndex(
+                            (s) => s.id === result.id
+                          );
+                          setCurrentSale(result);
+                          setCurrentIndex(index);
+                          setPhotoPreview(result.photoUrl || null);
+                          setShowSearchResults(false);
+                        }}
+                      >
+                        <div className="flex flex-col w-full">
+                          <span className="font-medium">{result.party}</span>
+                          <span className="text-xs text-gray-500">
+                            {result.vehicleNo} - {result.model}
+                          </span>
+                        </div>
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
+          </div>
+        </div>
+      </div>
+
+      {/* Main form */}
+      <div className="bg-white shadow rounded-lg p-6 mt-4" ref={printRef}>
+        {/* Photo preview and basic info */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+          {/* Photo preview */}
+          <div className="border p-4 rounded-lg flex flex-col items-center justify-center bg-gray-50 min-h-[200px]">
+            {photoPreview ? (
+              <div className="relative">
+                <img
+                  src={photoPreview}
+                  alt="Vehicle"
+                  className="max-w-full max-h-[180px] object-contain mb-2"
+                />
+                <div className="flex mt-2 justify-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleViewPhoto}
+                  >
+                    <ZoomIn className="h-4 w-4 mr-2" /> View
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleAddPhoto}
+                  >
+                    <Camera className="h-4 w-4 mr-2" /> Change
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center">
+                <div className="bg-gray-200 w-32 h-32 flex items-center justify-center rounded-lg mb-4">
+                  <Camera className="h-12 w-12 text-gray-400" />
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleAddPhoto}
+                >
+                  <Camera className="h-4 w-4 mr-2" /> Add Photo
+                </Button>
+              </div>
+            )}
+            <input
+              type="file"
+              accept="image/*"
+              onChange={handlePhotoChange}
+              ref={photoInputRef}
+              style={{ display: "none" }}
+            />
+          </div>
+
+          {/* Basic Info */}
+          <div className="col-span-2">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              <div className="form-group">
+                <label
+                  htmlFor="date"
+                  className="block mb-1 text-sm"
+                  style={{ backgroundColor: labelColor }}
+                >
+                  Date
+                </label>
+                <Input
+                  type="date"
+                  id="date"
+                  name="date"
+                  value={currentSale.date}
+                  onChange={handleInputChange}
+                />
+              </div>
+
+              <div className="form-group">
+                <label
+                  htmlFor="manualId"
+                  className="block mb-1 text-sm"
+                  style={{ backgroundColor: labelColor }}
+                >
+                  Manual ID
+                </label>
+                <Input
+                  type="text"
+                  id="manualId"
+                  name="manualId"
+                  value={currentSale.manualId || ""}
+                  onChange={handleInputChange}
+                />
+              </div>
+
+              <div className="form-group">
+                <label
+                  htmlFor="party"
+                  className="block mb-1 text-sm"
+                  style={{ backgroundColor: labelColor }}
+                >
+                  Party Name *
+                </label>
+                <Input
+                  type="text"
+                  id="party"
+                  name="party"
+                  value={currentSale.party}
+                  onChange={handleInputChange}
+                  required
+                />
+              </div>
+
+              <div className="form-group">
+                <label
+                  htmlFor="address"
+                  className="block mb-1 text-sm"
+                  style={{ backgroundColor: labelColor }}
+                >
+                  Address
+                </label>
+                <Input
+                  type="text"
+                  id="address"
+                  name="address"
+                  value={currentSale.address || ""}
+                  onChange={handleInputChange}
+                />
+              </div>
+
+              <div className="form-group">
+                <label
+                  htmlFor="phone"
+                  className="block mb-1 text-sm"
+                  style={{ backgroundColor: labelColor }}
+                >
+                  Phone
+                </label>
+                <Input
+                  type="text"
+                  id="phone"
+                  name="phone"
+                  value={currentSale.phone || ""}
+                  onChange={handleInputChange}
+                />
+              </div>
+
+              <div className="form-group">
+                <label
+                  htmlFor="model"
+                  className="block mb-1 text-sm"
+                  style={{ backgroundColor: labelColor }}
+                >
+                  Model *
+                </label>
+                <Input
+                  type="text"
+                  id="model"
+                  name="model"
+                  value={currentSale.model}
+                  onChange={handleInputChange}
+                  required
+                />
+              </div>
+
+              <div className="form-group">
+                <label
+                  htmlFor="vehicleNo"
+                  className="block mb-1 text-sm"
+                  style={{ backgroundColor: labelColor }}
+                >
+                  Vehicle No *
+                </label>
+                <Input
+                  type="text"
+                  id="vehicleNo"
+                  name="vehicleNo"
+                  value={currentSale.vehicleNo}
+                  onChange={handleInputChange}
+                  required
+                />
+              </div>
+
+              <div className="form-group">
+                <label
+                  htmlFor="chassis"
+                  className="block mb-1 text-sm"
+                  style={{ backgroundColor: labelColor }}
+                >
+                  Chassis No
+                </label>
+                <Input
+                  type="text"
+                  id="chassis"
+                  name="chassis"
+                  value={currentSale.chassis || ""}
+                  onChange={handleInputChange}
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="flex items-center space-x-2">
+                  <Checkbox
+                    id="rcBook"
+                    name="rcBook"
+                    checked={currentSale.rcBook || false}
+                    onCheckedChange={(checked) =>
+                      setCurrentSale({
+                        ...currentSale,
+                        rcBook: checked === true,
+                      })
+                    }
+                  />
+                  <span>RC Book</span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Full form content can be added here */}
+        {/* ... Add the rest of the Sales.tsx components here ... */}
+      </div>
+
+      {showPhotoModal && photoPreview && (
+        <ImagePreviewModal
+          imageUrl={photoPreview}
+          onClose={() => setShowPhotoModal(false)}
+        />
+      )}
+    </div>
+  );
+};
+
+export default Sales;
