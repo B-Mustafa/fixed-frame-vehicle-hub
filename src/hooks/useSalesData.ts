@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -360,6 +359,8 @@ export const useSalesData = () => {
         ? "Switched to Supabase cloud storage mode" 
         : "Switched to local storage mode",
     });
+    // Call fetchSales after toggling the storage mode to refresh data
+    fetchSales();
   };
 
   return {

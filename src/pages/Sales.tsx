@@ -12,6 +12,7 @@ import {
   unregisterKeyBindings,
   loadKeyBindings,
 } from "@/utils/keyBindings";
+import { format } from "date-fns";
 import { KeyBind, DEFAULT_KEYBINDS } from "@/components/KeyBindDialog";
 import ImagePreviewModal from "@/components/ImagePreviewModal";
 import {
@@ -263,7 +264,7 @@ const Sales = () => {
 
         for (const sale of importedSales) {
           try {
-            // Make sure each sale has the required fields
+            // Make sure each sale has the required fields and includes installments
             const saleWithDefaults = {
               ...sale,
               address: sale.address || "",
@@ -272,7 +273,8 @@ const Sales = () => {
               party: sale.party || "",
               date: sale.date || format(new Date(), "yyyy-MM-dd"),
               price: sale.price || 0,
-              total: sale.total || 0
+              total: sale.total || 0,
+              installments: sale.installments || emptySale.installments
             };
             
             // Make sure to properly use addSale or addSupabaseSale based on the useSupabase setting
