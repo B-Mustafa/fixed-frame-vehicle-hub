@@ -348,7 +348,7 @@ const Sales = () => {
 
         for (const sale of importedSales) {
           try {
-            // Make sure each sale has the required fields and includes installments
+            // Make sure each sale has the required fields
             const saleWithDefaults = {
               ...sale,
               address: sale.address || "",
@@ -359,6 +359,22 @@ const Sales = () => {
               price: sale.price || 0,
               total: sale.total || 0,
               phone: sale.phone || "",
+              remark: sale.remark || "", // This was missing
+              chassis: sale.chassis || "",
+              transportCost: sale.transportCost || 0,
+              insurance: sale.insurance || 0,
+              finance: sale.finance || 0,
+              repair: sale.repair || 0,
+              penalty: sale.penalty || 0,
+              dueAmount: sale.dueAmount || 0,
+              dueDate: sale.dueDate || format(new Date(), "yyyy-MM-dd"),
+              reminder: sale.reminder || "00:00",
+              witness: sale.witness || "",
+              witnessAddress: sale.witnessAddress || "",
+              witnessContact: sale.witnessContact || "",
+              witnessName2: sale.witnessName2 || "",
+              rcBook: sale.rcBook || false,
+              photoUrl: sale.photoUrl || "",
               installments: sale.installments || emptySale.installments
             };
             

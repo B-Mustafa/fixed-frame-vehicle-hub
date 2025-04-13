@@ -16,6 +16,7 @@ export interface Installment {
 
 // Interface for Supabase installment type
 export interface SupabaseInstallment {
+  id?: number;
   sale_id?: number;
   date: string;
   amount: number;
