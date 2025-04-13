@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1408,7 +1407,6 @@ const Sales = () => {
               </div>
 
               <div className="mb-4">
-
                 <div className="space-y-2">
                   <div className="flex">
                     <label
@@ -1487,7 +1485,7 @@ const Sales = () => {
             </h3>
             <div className="grid grid-cols-2 gap-2">
               {currentSale.installments
-                .slice(0, 10)
+                .slice(0, 8)
                 .map((installment, index) => (
                   <div key={index} className="flex items-center gap-2">
                     <div className="flex-1">
@@ -1526,7 +1524,7 @@ const Sales = () => {
                   </div>
                 ))}
             </div>
-            <div className="grid grid-cols-2 gap-2 mt-2">
+            {/* <div className="grid grid-cols-2 gap-2 mt-2">
               {currentSale.installments
                 .slice(10, 20)
                 .map((installment, index) => (
@@ -1570,7 +1568,7 @@ const Sales = () => {
                     />
                   </div>
                 ))}
-            </div>
+            </div> */}
           </div>
         </div>
 
@@ -1610,14 +1608,14 @@ const Sales = () => {
                 </div>
               )}
             </div>
-                <Button
-                  variant="outline"
-                  onClick={handleAddPhoto}
-                  className="w-full bg-red-400"
-                >
-                  <Camera className="h-4 w-4 mr-2" />
-                  {photoPreview ? "Change Photo" : "Add Photo"}
-                </Button>
+            <Button
+              variant="outline"
+              onClick={handleAddPhoto}
+              className="w-full bg-red-400"
+            >
+              <Camera className="h-4 w-4 mr-2" />
+              {photoPreview ? "Change Photo" : "Add Photo"}
+            </Button>
             {/* Witness Details */}
             <div className="mb-4">
               <h3
@@ -1727,7 +1725,7 @@ const Sales = () => {
                     className="flex-1"
                   />
                 </div>
-                <div className="flex items-center">
+                {/* <div className="flex items-center">
                   <Checkbox
                     name="rcBook"
                     checked={currentSale.rcBook}
@@ -1740,10 +1738,58 @@ const Sales = () => {
                     className="mr-2"
                   />
                   <label>R.C. Book</label>
+                </div> */}
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  {currentSale.installments
+                    .slice(10, 20)
+                    .map((installment, index) => (
+                      <div key={index + 10} className="flex items-center gap-2">
+                        <div className="flex-1">
+                          <Input
+                            type="date"
+                            value={installment.date}
+                            onChange={(e) =>
+                              handleInstallmentChange(
+                                index + 10,
+                                "date",
+                                e.target.value
+                              )
+                            }
+                            className="w-full  h-8"
+                            disabled={!installment.enabled}
+                          />
+                        </div>
+                        <div className="flex-1">
+                          <Input
+                            type="number"
+                            value={installment.amount || ""}
+                            onChange={(e) =>
+                              handleInstallmentChange(
+                                index + 10,
+                                "amount",
+                                e.target.value
+                              )
+                            }
+                            className="w-full  h-8"
+                            disabled={!installment.enabled}
+                          />
+                        </div>
+                        <Checkbox
+                          checked={installment.enabled}
+                          onCheckedChange={(checked) =>
+                            handleInstallmentChange(
+                              index + 10,
+                              "enabled",
+                              checked
+                            )
+                          }
+                          className="h-4 w-4"
+                        />
+                      </div>
+                    ))}
                 </div>
               </div>
             </div>
-
 
             <input
               type="file"
@@ -1770,4 +1816,3 @@ const Sales = () => {
 };
 
 export default Sales;
-
