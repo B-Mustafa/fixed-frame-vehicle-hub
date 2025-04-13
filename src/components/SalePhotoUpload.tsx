@@ -3,7 +3,7 @@ import React, { useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Camera, ZoomIn } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { uploadVehicleImage } from "@/integrations/supabase/service";
+import { uploadVehicleImage } from "@/integrations/supabase/services/storageService";
 
 interface SalePhotoUploadProps {
   photoPreview: string | null;

@@ -263,14 +263,26 @@ const Sales = () => {
 
         for (const sale of importedSales) {
           try {
+            // Make sure each sale has the required fields
+            const saleWithDefaults = {
+              ...sale,
+              address: sale.address || "",
+              vehicleNo: sale.vehicleNo || "",
+              model: sale.model || "",
+              party: sale.party || "",
+              date: sale.date || format(new Date(), "yyyy-MM-dd"),
+              price: sale.price || 0,
+              total: sale.total || 0
+            };
+            
             // Make sure to properly use addSale or addSupabaseSale based on the useSupabase setting
             if (useSupabase) {
               await import("@/integrations/supabase/service").then(
-                ({ addSupabaseSale }) => addSupabaseSale(sale)
+                ({ addSupabaseSale }) => addSupabaseSale(saleWithDefaults)
               );
             } else {
               await import("@/utils/dataStorage").then(
-                ({ addSale }) => addSale(sale)
+                ({ addSale }) => addSale(saleWithDefaults)
               );
             }
             successCount++;
@@ -298,7 +310,10 @@ const Sales = () => {
       });
     }
 
-    e.target.value = "";
+    // Clear the file input
+    if (e.target) {
+      e.target.value = "";
+    }
   };
 
   // Update your keybinding handlers

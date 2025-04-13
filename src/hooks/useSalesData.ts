@@ -368,6 +368,7 @@ export const useSalesData = () => {
     sales,
     setSales,
     currentIndex,
+    setCurrentIndex,
     photoPreview,
     setPhotoPreview,
     useSupabase,
