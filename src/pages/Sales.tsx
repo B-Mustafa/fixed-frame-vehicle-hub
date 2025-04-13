@@ -2,34 +2,11 @@
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import {
-  VehicleSale,
-  getSales,
-  addSale,
-  updateSale,
-  deleteSale,
-  getDuePayments,
-  updateDuePayment,
-} from "@/utils/dataStorage";
-import { format } from "date-fns";
-import {
-  Search,
-  Printer,
-  FileDown,
-  FileUp,
-  X,
-  History,
-  Camera,
-  ZoomIn,
-} from "lucide-react";
-import {
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-} from "@/components/ui/popover";
-import { exportSalesToExcel, importSalesFromExcel } from "@/utils/excelStorage";
+  exportSalesToExcel,
+  importSalesFromExcel
+} from "@/utils/excelStorage";
 import {
   registerKeyBindings,
   unregisterKeyBindings,
@@ -37,187 +14,47 @@ import {
 } from "@/utils/keyBindings";
 import { KeyBind, DEFAULT_KEYBINDS } from "@/components/KeyBindDialog";
 import ImagePreviewModal from "@/components/ImagePreviewModal";
-import { supabase } from "@/integrations/supabase/client";
-import { 
-  getSupabaseSales, 
-  addSupabaseSale, 
-  updateSupabaseSale, 
-  deleteSupabaseSale, 
-  uploadVehicleImage 
-} from "@/integrations/supabase/service";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
 
-const emptySale: Omit<VehicleSale, "id"> = {
-  date: format(new Date(), "yyyy-MM-dd"),
-  party: "",
-  address: "",
-  phone: "",
-  model: "",
-  vehicleNo: "",
-  chassis: "",
-  price: 0,
-  transportCost: 0,
-  insurance: 0,
-  finance: 0,
-  repair: 0,
-  penalty: 0,
-  total: 0,
-  dueDate: format(new Date(), "yyyy-MM-dd"),
-  dueAmount: 0,
-  witness: "",
-  witnessAddress: "",
-  witnessContact: "",
-  witnessName2: "",
-  remark: "",
-  photoUrl: "",
-  manualId: "",
-  reminder: "00:00",
-  rcBook: false,
-  installments: Array(18)
-    .fill(0)
-    .map(() => ({
-      date: "",
-      amount: 0,
-      paid: 0,
-      enabled: false,
-    })),
-};
-
-const SEARCH_HISTORY_KEY = "salesSearchHistory";
+// Import new components and hooks
+import SalesNavigation from "@/components/SalesNavigation";
+import SalesSearch from "@/components/SalesSearch";
+import SalesForm from "@/components/SalesForm";
+import { useSalesData, emptySale } from "@/hooks/useSalesData";
 
 const Sales = () => {
-  const [currentSale, setCurrentSale] = useState<
-    VehicleSale | (Omit<VehicleSale, "id"> & { id?: number })
-  >(emptySale);
-  const [sales, setSales] = useState<VehicleSale[]>([]);
-  const [currentIndex, setCurrentIndex] = useState(-1);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchHistory, setSearchHistory] = useState<
-    { query: string; timestamp: number }[]
-  >([]);
-  const [searchResults, setSearchResults] = useState<VehicleSale[]>([]);
-  const [showSearchResults, setShowSearchResults] = useState(false);
-  
-  // Change the default value to true to use Supabase by default
-  const [useSupabase, setUseSupabase] = useState(true);
-  const { toast } = useToast();
-  
-  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const {
+    currentSale,
+    setCurrentSale,
+    sales,
+    setSales,
+    currentIndex,
+    setCurrentIndex,
+    photoPreview,
+    setPhotoPreview,
+    useSupabase,
+    handleSave,
+    handleNew,
+    handleDelete,
+    navigateFirst,
+    navigatePrev,
+    navigateNext,
+    navigateLast,
+    toggleSupabase,
+    fetchSales,
+  } = useSalesData();
+
   const [showPhotoModal, setShowPhotoModal] = useState(false);
   const [labelColor, setLabelColor] = useState("#e6f7ff");
   const printRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const photoInputRef = useRef<HTMLInputElement>(null);
+  const { toast } = useToast();
 
-  useEffect(() => {
-    const fetchSales = async () => {
-      try {
-        let loadedSales: VehicleSale[];
-        
-        if (useSupabase) {
-          // Try to fetch from Supabase
-          try {
-            loadedSales = await getSupabaseSales();
-            console.log("Supabase sales loaded:", loadedSales);
-            toast({
-              title: "Success",
-              description: "Data loaded from Supabase successfully",
-            });
-          } catch (error) {
-            console.error("Error loading from Supabase:", error);
-            toast({
-              title: "Supabase Error",
-              description: "Falling back to local storage",
-              variant: "destructive",
-            });
-            // Fall back to local storage
-            loadedSales = await getSales();
-          }
-        } else {
-          // Use local storage
-          loadedSales = await getSales();
-        }
-        
-        setSales(loadedSales);
-        if (loadedSales.length > 0) {
-          const firstSale = loadedSales[0];
-          setCurrentSale({
-            ...firstSale,
-            manualId: firstSale.manualId || firstSale.id?.toString() || "",
-            installments: firstSale.installments || emptySale.installments,
-          });
-          setCurrentIndex(0);
-          setPhotoPreview(firstSale.photoUrl || null);
-        }
-      } catch (error) {
-        console.error("Error loading sales:", error);
-        toast({
-          title: "Error",
-          description: "Failed to load sales",
-          variant: "destructive",
-        });
-      }
-    };
-
-    const loadSearchHistory = () => {
-      const savedHistory = localStorage.getItem(SEARCH_HISTORY_KEY);
-      if (savedHistory) {
-        const parsedHistory = JSON.parse(savedHistory) as {
-          query: string;
-          timestamp: number;
-        }[];
-        const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
-        const filteredHistory = parsedHistory.filter(
-          (item) => item.timestamp >= oneDayAgo
-        );
-
-        if (filteredHistory.length !== parsedHistory.length) {
-          localStorage.setItem(
-            SEARCH_HISTORY_KEY,
-            JSON.stringify(filteredHistory)
-          );
-        }
-
-        setSearchHistory(filteredHistory);
-      }
-    };
-
-    fetchSales();
-    loadSearchHistory();
-  }, [toast, useSupabase]);
-
-  // Fixed calculation effect - added proper dependencies
-  useEffect(() => {
-    if (currentSale) {
-      const total =
-        (currentSale.price || 0) +
-        (currentSale.transportCost || 0) +
-        (currentSale.insurance || 0) +
-        (currentSale.finance || 0) +
-        (currentSale.repair || 0) +
-        (currentSale.penalty || 0);
-
-      const totalInstallments = currentSale.installments
-        .filter((inst) => inst.enabled)
-        .reduce((sum, inst) => sum + (inst.amount || 0), 0);
-
-      const dueAmount = Math.max(0, total - totalInstallments);
-
-      setCurrentSale((prev) => ({
-        ...prev,
-        total,
-        dueAmount,
-      }));
-    }
-  }, [
-    currentSale.price,
-    currentSale.transportCost,
-    currentSale.insurance,
-    currentSale.finance,
-    currentSale.repair,
-    currentSale.penalty,
-    currentSale.installments,
-  ]);
-
+  // Handle installment changes
   const handleInstallmentChange = (
     index: number,
     field: string,
@@ -229,7 +66,7 @@ const Sales = () => {
       if (value && !updatedInstallments[index].date) {
         updatedInstallments[index] = {
           ...updatedInstallments[index],
-          date: format(new Date(), "yyyy-MM-dd"),
+          date: new Date().toISOString().split("T")[0],
           enabled: value,
         };
       } else {
@@ -254,283 +91,6 @@ const Sales = () => {
       ...currentSale,
       installments: updatedInstallments,
     });
-  };
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value, type } = e.target;
-
-    if (type === "number") {
-      setCurrentSale((prev) => ({
-        ...prev,
-        [name]: value === "" ? 0 : parseFloat(value),
-      }));
-    } else if (name === "labelColor") {
-      setLabelColor(value);
-    } else if (type === "checkbox") {
-      setCurrentSale((prev) => ({
-        ...prev,
-        [name]: (e.target as HTMLInputElement).checked,
-      }));
-    } else {
-      setCurrentSale((prev) => ({
-        ...prev,
-        [name]: value,
-      }));
-    }
-  };
-
-  const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      try {
-        let photoUrl;
-        
-        if (useSupabase) {
-          // Upload to Supabase Storage
-          photoUrl = await uploadVehicleImage(file);
-        } else {
-          // Use local storage (base64)
-          const reader = new FileReader();
-          photoUrl = await new Promise<string>((resolve) => {
-            reader.onload = (event) => {
-              resolve(event.target?.result as string);
-            };
-            reader.readAsDataURL(file);
-          });
-        }
-        
-        setPhotoPreview(photoUrl);
-        setCurrentSale({
-          ...currentSale,
-          photoUrl,
-        });
-        
-        toast({
-          title: "Success",
-          description: "Photo uploaded successfully",
-        });
-      } catch (error) {
-        console.error("Error uploading photo:", error);
-        toast({
-          title: "Error",
-          description: "Failed to upload photo",
-          variant: "destructive",
-        });
-      }
-    }
-  };
-
-  const handleSave = async () => {
-    if (!currentSale.party || !currentSale.vehicleNo || !currentSale.model) {
-      toast({
-        title: "Error",
-        description:
-          "Please fill in all required fields: Party, Vehicle No, and Model",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    try {
-      const updatedSales = [...sales];
-      let updatedSale;
-
-      if (useSupabase) {
-        // Use Supabase
-        if (currentSale.id) {
-          updatedSale = await updateSupabaseSale(currentSale as VehicleSale);
-        } else {
-          // Make sure address is not undefined
-          const saleToAdd = {
-            ...currentSale,
-            address: currentSale.address || ""
-          };
-          updatedSale = await addSupabaseSale(saleToAdd);
-        }
-      } else {
-        // Use local storage
-        if (currentSale.id) {
-          updatedSale = await updateSale(currentSale as VehicleSale);
-        } else {
-          updatedSale = await addSale(currentSale);
-        }
-      }
-
-      if (currentSale.id) {
-        const index = updatedSales.findIndex((s) => s.id === updatedSale.id);
-        if (index >= 0) {
-          updatedSales[index] = updatedSale;
-        } else {
-          updatedSales.push(updatedSale);
-        }
-
-        if (updatedSale.dueAmount > 0) {
-          const duePayments = await getDuePayments();
-          const existingDuePayment = duePayments.find(
-            (dp) => dp.vehicleNo === updatedSale.vehicleNo
-          );
-
-          if (existingDuePayment) {
-            await updateDuePayment({
-              ...existingDuePayment,
-              dueAmount: updatedSale.dueAmount,
-              dueDate: updatedSale.dueDate,
-              party: updatedSale.party,
-              model: updatedSale.model,
-              contact: updatedSale.phone,
-              address: updatedSale.address,
-            });
-          }
-        }
-
-        toast({
-          title: "Sale Updated",
-          description: `Sale to ${updatedSale.party} has been updated.`,
-        });
-      } else {
-        updatedSales.push(updatedSale);
-        setCurrentSale({
-          ...updatedSale,
-          manualId: updatedSale.manualId || updatedSale.id?.toString() || "",
-        });
-        setCurrentIndex(updatedSales.length - 1);
-        toast({
-          title: "Sale Added",
-          description: `New sale to ${updatedSale.party} has been added.`,
-        });
-      }
-
-      setSales(updatedSales);
-    } catch (error) {
-      console.error("Error saving sale:", error);
-      toast({
-        title: "Error",
-        description: "Failed to save sale",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleNew = () => {
-    setCurrentSale({
-      ...emptySale,
-      date: format(new Date(), "yyyy-MM-dd"),
-      dueDate: format(new Date(), "yyyy-MM-dd"),
-      installments: emptySale.installments,
-    });
-    setCurrentIndex(-1);
-    setPhotoPreview(null);
-  };
-
-  const handleDelete = async () => {
-    if (!currentSale.id) return;
-
-    if (window.confirm("Are you sure you want to delete this sale?")) {
-      try {
-        let deleted;
-        
-        if (useSupabase) {
-          // Use Supabase
-          deleted = await deleteSupabaseSale(currentSale.id);
-        } else {
-          // Use local storage
-          deleted = await deleteSale(currentSale.id);
-        }
-
-        if (deleted) {
-          const updatedSales = sales.filter((s) => s.id !== currentSale.id);
-          setSales(updatedSales);
-
-          if (updatedSales.length > 0) {
-            setCurrentSale(updatedSales[0]);
-            setCurrentIndex(0);
-            setPhotoPreview(updatedSales[0].photoUrl || null);
-          } else {
-            handleNew();
-          }
-
-          toast({
-            title: "Sale Deleted",
-            description: "The sale has been deleted successfully.",
-          });
-        }
-      } catch (error) {
-        console.error("Error deleting sale:", error);
-        toast({
-          title: "Error",
-          description: "Failed to delete sale",
-          variant: "destructive",
-        });
-      }
-    }
-  };
-
-  const handleClearSearch = () => {
-    setSearchQuery("");
-    setSearchResults([]);
-    setShowSearchResults(false);
-  };
-
-  const addToSearchHistory = (query: string) => {
-    if (!query.trim()) return;
-
-    const newItem = { query, timestamp: Date.now() };
-    const existingIndex = searchHistory.findIndex(
-      (item) => item.query.toLowerCase() === query.toLowerCase()
-    );
-
-    let updatedHistory;
-    if (existingIndex >= 0) {
-      updatedHistory = [...searchHistory];
-      updatedHistory[existingIndex] = newItem;
-    } else {
-      updatedHistory = [newItem, ...searchHistory];
-    }
-
-    if (updatedHistory.length > 20) {
-      updatedHistory = updatedHistory.slice(0, 20);
-    }
-
-    setSearchHistory(updatedHistory);
-    localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(updatedHistory));
-  };
-
-  const handleSearch = () => {
-    if (!searchQuery.trim()) return;
-
-    addToSearchHistory(searchQuery);
-
-    const searchLower = searchQuery.toLowerCase();
-    const results = sales.filter(
-      (sale) =>
-        sale.party.toLowerCase().includes(searchLower) ||
-        sale.vehicleNo.toLowerCase().includes(searchLower) ||
-        sale.phone?.includes(searchLower) ||
-        sale.model.toLowerCase().includes(searchLower) ||
-        sale.chassis?.toLowerCase().includes(searchLower) ||
-        sale.address.toLowerCase().includes(searchLower) ||
-        sale.remark?.toLowerCase().includes(searchLower)
-    );
-
-    setSearchResults(results);
-    setShowSearchResults(results.length > 0);
-
-    if (results.length > 0) {
-      const foundSale = results[0];
-      const saleIndex = sales.findIndex((s) => s.id === foundSale.id);
-      setCurrentSale(foundSale);
-      setCurrentIndex(saleIndex);
-      setPhotoPreview(foundSale.photoUrl || null);
-      toast({
-        title: "Search Results",
-        description: `Found ${results.length} matching records`,
-      });
-    } else {
-      toast({
-        title: "No Results",
-        description: "No matching records found",
-      });
-    }
   };
 
   const handlePrint = () => {
@@ -663,10 +223,6 @@ const Sales = () => {
     }
   };
 
-  const handleAddPhoto = () => {
-    photoInputRef.current?.click();
-  };
-
   const handleViewPhoto = () => {
     if (photoPreview) {
       setShowPhotoModal(true);
@@ -707,7 +263,16 @@ const Sales = () => {
 
         for (const sale of importedSales) {
           try {
-            await addSale(sale);
+            // Make sure to properly use addSale or addSupabaseSale based on the useSupabase setting
+            if (useSupabase) {
+              await import("@/integrations/supabase/service").then(
+                ({ addSupabaseSale }) => addSupabaseSale(sale)
+              );
+            } else {
+              await import("@/utils/dataStorage").then(
+                ({ addSale }) => addSale(sale)
+              );
+            }
             successCount++;
           } catch (error) {
             console.error("Error importing sale:", error);
@@ -715,14 +280,8 @@ const Sales = () => {
           }
         }
 
-        const updatedSales = await getSales();
-        setSales(updatedSales);
-
-        if (updatedSales.length > 0) {
-          setCurrentSale(updatedSales[0]);
-          setCurrentIndex(0);
-          setPhotoPreview(updatedSales[0].photoUrl || null);
-        }
+        // Refresh the sales data after import
+        fetchSales();
 
         toast({
           title: "Import Complete",
@@ -742,54 +301,6 @@ const Sales = () => {
     e.target.value = "";
   };
 
-  const navigateFirst = () => {
-    if (sales.length > 0) {
-      const firstSale = sales[0];
-      setCurrentSale({
-        ...firstSale,
-        manualId: firstSale.manualId || firstSale.id?.toString() || "",
-      });
-      setCurrentIndex(0);
-      setPhotoPreview(firstSale.photoUrl || null);
-    }
-  };
-
-  const navigatePrev = () => {
-    if (currentIndex > 0) {
-      const prevSale = sales[currentIndex - 1];
-      setCurrentSale({
-        ...prevSale,
-        manualId: prevSale.manualId || prevSale.id?.toString() || "",
-      });
-      setCurrentIndex(currentIndex - 1);
-      setPhotoPreview(prevSale.photoUrl || null);
-    }
-  };
-
-  const navigateNext = () => {
-    if (currentIndex < sales.length - 1) {
-      const nextSale = sales[currentIndex + 1];
-      setCurrentSale({
-        ...nextSale,
-        manualId: nextSale.manualId || nextSale.id?.toString() || "",
-      });
-      setCurrentIndex(currentIndex + 1);
-      setPhotoPreview(nextSale.photoUrl || null);
-    }
-  };
-
-  const navigateLast = () => {
-    if (sales.length > 0) {
-      const lastSale = sales[sales.length - 1];
-      setCurrentSale({
-        ...lastSale,
-        manualId: lastSale.manualId || lastSale.id?.toString() || "",
-      });
-      setCurrentIndex(sales.length - 1);
-      setPhotoPreview(lastSale.photoUrl || null);
-    }
-  };
-
   // Update your keybinding handlers
   const handleKeyBindsChange = (binds: KeyBind[]) => {
     // Save to localStorage
@@ -802,7 +313,7 @@ const Sales = () => {
         handler: () => {
           switch (bind.id) {
             case "search":
-              handleSearch();
+              // Handle search - will be handled separately in the Search component
               break;
             case "new":
               handleNew();
@@ -825,42 +336,6 @@ const Sales = () => {
             case "next":
               navigateNext();
               break;
-            case "search_prev":
-              if (searchResults.length > 0) {
-                const currentIndex = searchResults.findIndex(
-                  (s) => s.id === currentSale.id
-                );
-                const prevIndex =
-                  currentIndex > 0
-                    ? currentIndex - 1
-                    : searchResults.length - 1;
-                const prevResult = searchResults[prevIndex];
-                const saleIndex = sales.findIndex(
-                  (s) => s.id === prevResult.id
-                );
-                setCurrentSale(prevResult);
-                setCurrentIndex(saleIndex);
-                setPhotoPreview(prevResult.photoUrl || null);
-              }
-              break;
-            case "search_next":
-              if (searchResults.length > 0) {
-                const currentIndex = searchResults.findIndex(
-                  (s) => s.id === currentSale.id
-                );
-                const nextIndex =
-                  currentIndex < searchResults.length - 1
-                    ? currentIndex + 1
-                    : 0;
-                const nextResult = searchResults[nextIndex];
-                const saleIndex = sales.findIndex(
-                  (s) => s.id === nextResult.id
-                );
-                setCurrentSale(nextResult);
-                setCurrentIndex(saleIndex);
-                setPhotoPreview(nextResult.photoUrl || null);
-              }
-              break;
             case "print":
               handlePrint();
               break;
@@ -873,154 +348,44 @@ const Sales = () => {
     );
   };
 
-  // Update your useEffect for keybindings initialization
+  // Initialize keybindings
   useEffect(() => {
-    const initialize = async () => {
-      try {
-        // Load sales data
-        const loadedSales = await getSales();
-        setSales(loadedSales);
-        if (loadedSales.length > 0) {
-          const firstSale = loadedSales[0];
-          setCurrentSale({
-            ...firstSale,
-            manualId: firstSale.manualId || firstSale.id?.toString() || "",
-            installments: firstSale.installments || emptySale.installments,
-          });
-          setCurrentIndex(0);
-          setPhotoPreview(firstSale.photoUrl || null);
-        }
+    // Load keybindings
+    const savedBinds = loadKeyBindings();
+    const bindingsToUse = savedBinds || DEFAULT_KEYBINDS;
 
-        // Load keybindings
-        const savedBinds = loadKeyBindings();
-        const bindingsToUse = savedBinds || DEFAULT_KEYBINDS;
-
-        // Register keybindings with handlers
-        handleKeyBindsChange(bindingsToUse);
-      } catch (error) {
-        console.error("Error initializing:", error);
-        toast({
-          title: "Error",
-          description: "Failed to initialize data",
-          variant: "destructive",
-        });
-      }
-    };
-
-    initialize();
-    initialize();
+    // Register keybindings with handlers
+    handleKeyBindsChange(bindingsToUse);
 
     return () => {
       unregisterKeyBindings();
     };
   }, []);
 
-  // Save user preference for Supabase in localStorage
-  const toggleSupabase = () => {
-    const newValue = !useSupabase;
-    setUseSupabase(newValue);
-    localStorage.setItem("useSupabase", newValue.toString());
-    toast({
-      title: newValue ? "Supabase Mode" : "Local Storage Mode",
-      description: newValue 
-        ? "Switched to Supabase cloud storage mode" 
-        : "Switched to local storage mode",
-    });
-  };
-
-  // Add useEffect to load the stored preference
-  useEffect(() => {
-    const storedPreference = localStorage.getItem("useSupabase");
-    if (storedPreference !== null) {
-      setUseSupabase(storedPreference === "true");
-    }
-  }, []);
-
   return (
     <div className="h-full p-4 bg-[#0080FF] overflow-auto">
-      <div className="flex flex-wrap items-center justify-between gap-2 sticky top-0 z-10">
-        <div className="flex items-center gap-2 flex-wrap">
-          <Button
-            variant="outline"
-            onClick={navigateFirst}
-            disabled={sales.length === 0 || currentIndex === 0}
-            size="sm"
-          >
-            First
-          </Button>
-          <Button
-            variant="outline"
-            onClick={navigatePrev}
-            disabled={sales.length === 0 || currentIndex <= 0}
-            size="sm"
-          >
-            Prev
-          </Button>
-          <Button
-            variant="outline"
-            onClick={navigateNext}
-            disabled={sales.length === 0 || currentIndex >= sales.length - 1}
-            size="sm"
-          >
-            Next
-          </Button>
-          <Button
-            variant="outline"
-            onClick={navigateLast}
-            disabled={sales.length === 0 || currentIndex === sales.length - 1}
-            size="sm"
-          >
-            Last
-          </Button>
-          <Button variant="outline" onClick={handleNew} size="sm">
-            Add
-          </Button>
-          <Button
-            variant="outline"
-            onClick={handleDelete}
-            disabled={!currentSale.id}
-            size="sm"
-          >
-            Del
-          </Button>
-          <Button variant="destructive" onClick={handleSave} size="sm">
-            Save
-          </Button>
-          <Button variant="outline" onClick={handlePrint} size="sm">
-            <Printer className="h-4 w-4 mr-2" /> Print
-          </Button>
-          <Button
-            variant="outline"
-            onClick={handleExportToExcel}
-            className="bg-green-50"
-            size="sm"
-          >
-            <FileDown className="h-4 w-4 mr-2" /> Export Excel
-          </Button>
-          <Button
-            variant="outline"
-            onClick={handleImportFromFile}
-            className="bg-blue-50"
-            size="sm"
-          >
-            <FileUp className="h-4 w-4 mr-2" /> Import
-          </Button>
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={handleFileChange}
-            accept=".xlsx,.xls,.csv"
-            style={{ display: "none" }}
-          />
-          <Button
-            variant={useSupabase ? "default" : "outline"}
-            onClick={toggleSupabase}
-            size="sm"
-            className={useSupabase ? "bg-green-500" : ""}
-          >
-            {useSupabase ? "Using Supabase" : "Using Local Storage"}
-          </Button>
-        </div>
+      {/* Navigation buttons */}
+      <SalesNavigation
+        sales={sales}
+        currentIndex={currentIndex}
+        useSupabase={useSupabase}
+        navigateFirst={navigateFirst}
+        navigatePrev={navigatePrev}
+        navigateNext={navigateNext}
+        navigateLast={navigateLast}
+        handleNew={handleNew}
+        handleDelete={handleDelete}
+        handleSave={handleSave}
+        handlePrint={handlePrint}
+        handleExportToExcel={handleExportToExcel}
+        handleImportFromFile={handleImportFromFile}
+        toggleSupabase={toggleSupabase}
+        currentSale={currentSale}
+      />
+
+      {/* Search component */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div></div> {/* Spacer for flex layout */}
 
         <div className="flex items-center gap-2 flex-wrap">
           <Popover>
@@ -1035,343 +400,39 @@ const Sales = () => {
             </PopoverTrigger>
             <PopoverContent className="w-64">
               <div className="space-y-2">
-                <h4 className=" ">Label Background Color</h4>
+                <h4 className="font-medium">Label Background Color</h4>
                 <Input
                   type="color"
                   value={labelColor}
                   name="labelColor"
-                  onChange={handleInputChange}
+                  onChange={(e) => setLabelColor(e.target.value)}
                   className="h-8 w-full"
                 />
               </div>
             </PopoverContent>
           </Popover>
 
-          <div className="flex relative">
-            <Popover
-              open={showSearchResults && searchResults.length > 0}
-              onOpenChange={setShowSearchResults}
-            >
-              <div className="flex items-center">
-                <div className="relative flex w-full items-center">
-                  <Input
-                    placeholder="Search by party, vehicle no, phone..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-[200px] sm:min-w-[270px] pr-8"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        handleSearch();
-                      }
-                    }}
-                  />
-                  {searchQuery && (
-                    <button
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                      onClick={handleClearSearch}
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  )}
-                </div>
-                <Button
-                  variant="outline"
-                  onClick={handleSearch}
-                  className="ml-1"
-                  size="sm"
-                >
-                  <Search className="h-4 w-4" />
-                </Button>
-
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="ml-1" size="sm">
-                      <History className="h-4 w-4" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-[300px] p-0">
-                    <div className="p-2">
-                      <h3 className="font-medium mb-1">Recent Searches</h3>
-                      {searchHistory.length === 0 ? (
-                        <p className="text-sm text-gray-500">No recent searches</p>
-                      ) : (
-                        <div className="flex flex-col space-y-1 max-h-[200px] overflow-y-auto">
-                          {searchHistory.map((item, index) => (
-                            <Button
-                              key={index}
-                              variant="ghost"
-                              className="justify-start h-8 px-2 text-left"
-                              onClick={() => {
-                                setSearchQuery(item.query);
-                                handleSearch();
-                              }}
-                            >
-                              <span className="truncate">{item.query}</span>
-                            </Button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </PopoverContent>
-                </Popover>
-              </div>
-              <PopoverContent
-                className="w-[350px] p-0"
-                align="start"
-                side="bottom"
-              >
-                <div className="p-2">
-                  <h3 className="font-medium mb-1">Search Results</h3>
-                  <div className="flex flex-col space-y-1 max-h-[300px] overflow-y-auto">
-                    {searchResults.map((result) => (
-                      <Button
-                        key={result.id}
-                        variant="ghost"
-                        className="justify-start h-auto text-left py-2"
-                        onClick={() => {
-                          const index = sales.findIndex(
-                            (s) => s.id === result.id
-                          );
-                          setCurrentSale(result);
-                          setCurrentIndex(index);
-                          setPhotoPreview(result.photoUrl || null);
-                          setShowSearchResults(false);
-                        }}
-                      >
-                        <div className="flex flex-col w-full">
-                          <span className="font-medium">{result.party}</span>
-                          <span className="text-xs text-gray-500">
-                            {result.vehicleNo} - {result.model}
-                          </span>
-                        </div>
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-              </PopoverContent>
-            </Popover>
-          </div>
+          <SalesSearch
+            sales={sales}
+            setCurrentSale={setCurrentSale}
+            setCurrentIndex={setCurrentIndex}
+            setPhotoPreview={setPhotoPreview}
+          />
         </div>
       </div>
 
       {/* Main form */}
-      <div className="bg-white shadow rounded-lg p-6 mt-4" ref={printRef}>
-        {/* Photo preview and basic info */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-          {/* Photo preview */}
-          <div className="border p-4 rounded-lg flex flex-col items-center justify-center bg-gray-50 min-h-[200px]">
-            {photoPreview ? (
-              <div className="relative">
-                <img
-                  src={photoPreview}
-                  alt="Vehicle"
-                  className="max-w-full max-h-[180px] object-contain mb-2"
-                />
-                <div className="flex mt-2 justify-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleViewPhoto}
-                  >
-                    <ZoomIn className="h-4 w-4 mr-2" /> View
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleAddPhoto}
-                  >
-                    <Camera className="h-4 w-4 mr-2" /> Change
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center">
-                <div className="bg-gray-200 w-32 h-32 flex items-center justify-center rounded-lg mb-4">
-                  <Camera className="h-12 w-12 text-gray-400" />
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleAddPhoto}
-                >
-                  <Camera className="h-4 w-4 mr-2" /> Add Photo
-                </Button>
-              </div>
-            )}
-            <input
-              type="file"
-              accept="image/*"
-              onChange={handlePhotoChange}
-              ref={photoInputRef}
-              style={{ display: "none" }}
-            />
-          </div>
-
-          {/* Basic Info */}
-          <div className="col-span-2">
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-              <div className="form-group">
-                <label
-                  htmlFor="date"
-                  className="block mb-1 text-sm"
-                  style={{ backgroundColor: labelColor }}
-                >
-                  Date
-                </label>
-                <Input
-                  type="date"
-                  id="date"
-                  name="date"
-                  value={currentSale.date}
-                  onChange={handleInputChange}
-                />
-              </div>
-
-              <div className="form-group">
-                <label
-                  htmlFor="manualId"
-                  className="block mb-1 text-sm"
-                  style={{ backgroundColor: labelColor }}
-                >
-                  Manual ID
-                </label>
-                <Input
-                  type="text"
-                  id="manualId"
-                  name="manualId"
-                  value={currentSale.manualId || ""}
-                  onChange={handleInputChange}
-                />
-              </div>
-
-              <div className="form-group">
-                <label
-                  htmlFor="party"
-                  className="block mb-1 text-sm"
-                  style={{ backgroundColor: labelColor }}
-                >
-                  Party Name *
-                </label>
-                <Input
-                  type="text"
-                  id="party"
-                  name="party"
-                  value={currentSale.party}
-                  onChange={handleInputChange}
-                  required
-                />
-              </div>
-
-              <div className="form-group">
-                <label
-                  htmlFor="address"
-                  className="block mb-1 text-sm"
-                  style={{ backgroundColor: labelColor }}
-                >
-                  Address
-                </label>
-                <Input
-                  type="text"
-                  id="address"
-                  name="address"
-                  value={currentSale.address || ""}
-                  onChange={handleInputChange}
-                />
-              </div>
-
-              <div className="form-group">
-                <label
-                  htmlFor="phone"
-                  className="block mb-1 text-sm"
-                  style={{ backgroundColor: labelColor }}
-                >
-                  Phone
-                </label>
-                <Input
-                  type="text"
-                  id="phone"
-                  name="phone"
-                  value={currentSale.phone || ""}
-                  onChange={handleInputChange}
-                />
-              </div>
-
-              <div className="form-group">
-                <label
-                  htmlFor="model"
-                  className="block mb-1 text-sm"
-                  style={{ backgroundColor: labelColor }}
-                >
-                  Model *
-                </label>
-                <Input
-                  type="text"
-                  id="model"
-                  name="model"
-                  value={currentSale.model}
-                  onChange={handleInputChange}
-                  required
-                />
-              </div>
-
-              <div className="form-group">
-                <label
-                  htmlFor="vehicleNo"
-                  className="block mb-1 text-sm"
-                  style={{ backgroundColor: labelColor }}
-                >
-                  Vehicle No *
-                </label>
-                <Input
-                  type="text"
-                  id="vehicleNo"
-                  name="vehicleNo"
-                  value={currentSale.vehicleNo}
-                  onChange={handleInputChange}
-                  required
-                />
-              </div>
-
-              <div className="form-group">
-                <label
-                  htmlFor="chassis"
-                  className="block mb-1 text-sm"
-                  style={{ backgroundColor: labelColor }}
-                >
-                  Chassis No
-                </label>
-                <Input
-                  type="text"
-                  id="chassis"
-                  name="chassis"
-                  value={currentSale.chassis || ""}
-                  onChange={handleInputChange}
-                />
-              </div>
-
-              <div className="form-group">
-                <label className="flex items-center space-x-2">
-                  <Checkbox
-                    id="rcBook"
-                    name="rcBook"
-                    checked={currentSale.rcBook || false}
-                    onCheckedChange={(checked) =>
-                      setCurrentSale({
-                        ...currentSale,
-                        rcBook: checked === true,
-                      })
-                    }
-                  />
-                  <span>RC Book</span>
-                </label>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Full form content can be added here */}
-        {/* ... Add the rest of the Sales.tsx components here ... */}
-      </div>
+      <SalesForm
+        currentSale={currentSale}
+        setCurrentSale={setCurrentSale}
+        photoPreview={photoPreview}
+        setPhotoPreview={setPhotoPreview}
+        useSupabase={useSupabase}
+        labelColor={labelColor}
+        setLabelColor={setLabelColor}
+        handleViewPhoto={handleViewPhoto}
+        printRef={printRef}
+      />
 
       {showPhotoModal && photoPreview && (
         <ImagePreviewModal
@@ -1379,6 +440,15 @@ const Sales = () => {
           onClose={() => setShowPhotoModal(false)}
         />
       )}
+
+      {/* Hidden file input for import */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileChange}
+        accept=".xlsx,.xls,.csv"
+        style={{ display: "none" }}
+      />
     </div>
   );
 };
