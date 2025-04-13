@@ -1,11 +1,17 @@
+
 *{
-  font-size: 40px;
-  font-weight: bolder;
+  font-size: 16px;
+  font-weight: normal;
 }
+
 #root {
   max-width: 1280px;
   margin: 0 auto;
-  padding: 2rem;
+  padding: 1rem;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-weight: bold;
 }
 
 .logo {
@@ -42,4 +48,28 @@
 
 .read-the-docs {
   color: #888;
+}
+
+.form-group {
+  margin-bottom: 1rem;
+}
+
+label {
+  display: inline-block;
+  margin-bottom: 0.5rem;
+}
+
+input[type="text"],
+input[type="number"],
+input[type="date"],
+input[type="time"] {
+  font-size: 14px;
+}
+
+button {
+  font-size: 14px;
+}
+
+.flex input {
+  font-size: 14px;
 }

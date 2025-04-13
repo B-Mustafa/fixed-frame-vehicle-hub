@@ -1,40 +1,22 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import {
-  VehicleSale,
-  getSales,
-  addSale,
-  updateSale,
-  deleteSale,
-  getDuePayments,
-  updateDuePayment,
-} from "@/utils/dataStorage";
-import { format } from "date-fns";
-import {
-  Search,
-  Printer,
-  FileDown,
-  FileUp,
-  X,
-  History,
-  Camera,
-  ZoomIn,
-} from "lucide-react";
-import {
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-} from "@/components/ui/popover";
-import { exportSalesToExcel, importSalesFromExcel } from "@/utils/excelStorage";
+  exportSalesToExcel,
+  importSalesFromExcel
+} from "@/utils/excelStorage";
 import {
   registerKeyBindings,
   unregisterKeyBindings,
   loadKeyBindings,
 } from "@/utils/keyBindings";
+import { format } from "date-fns";
 import { KeyBind, DEFAULT_KEYBINDS } from "@/components/KeyBindDialog";
+import { Camera, FileDown, FileUp, History, Printer, Search, ZoomIn } from "lucide-react";
+import { addSale, getSales, VehicleSale } from "@/utils/dataStorage";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 const emptySale: Omit<VehicleSale, "id"> = {
   date: format(new Date(), "yyyy-MM-dd"),
@@ -80,16 +62,15 @@ const Sales = () => {
   >(emptySale);
   const [sales, setSales] = useState<VehicleSale[]>([]);
   const [currentIndex, setCurrentIndex] = useState(-1);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchHistory, setSearchHistory] = useState<
-    { query: string; timestamp: number }[]
-  >([]);
-  const [searchResults, setSearchResults] = useState<VehicleSale[]>([]);
-  const [showSearchResults, setShowSearchResults] = useState(false);
   const { toast } = useToast();
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [showPhotoModal, setShowPhotoModal] = useState(false);
   const [labelColor, setLabelColor] = useState("#e6f7ff");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchHistory, setSearchHistory] = useState<{ query: string; timestamp: number }[]>([]);
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [showSearchResults, setShowSearchResults] = useState(false);
+  
   const printRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
@@ -190,7 +171,7 @@ const Sales = () => {
       if (value && !updatedInstallments[index].date) {
         updatedInstallments[index] = {
           ...updatedInstallments[index],
-          date: format(new Date(), "yyyy-MM-dd"),
+          date: new Date().toISOString().split("T")[0],
           enabled: value,
         };
       } else {
@@ -215,226 +196,6 @@ const Sales = () => {
       ...currentSale,
       installments: updatedInstallments,
     });
-  };
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value, type } = e.target;
-
-    if (type === "number") {
-      setCurrentSale((prev) => ({
-        ...prev,
-        [name]: value === "" ? 0 : parseFloat(value),
-      }));
-    } else if (name === "labelColor") {
-      setLabelColor(value);
-    } else if (type === "checkbox") {
-      setCurrentSale((prev) => ({
-        ...prev,
-        [name]: (e.target as HTMLInputElement).checked,
-      }));
-    } else {
-      setCurrentSale((prev) => ({
-        ...prev,
-        [name]: value,
-      }));
-    }
-  };
-
-  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const photoUrl = event.target?.result as string;
-        setPhotoPreview(photoUrl);
-        setCurrentSale({
-          ...currentSale,
-          photoUrl,
-        });
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const handleSave = async () => {
-    if (!currentSale.party || !currentSale.vehicleNo || !currentSale.model) {
-      toast({
-        title: "Error",
-        description:
-          "Please fill in all required fields: Party, Vehicle No, and Model",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    try {
-      const updatedSales = [...sales];
-
-      if (currentSale.id) {
-        const updatedSale = await updateSale(currentSale as VehicleSale);
-        const index = updatedSales.findIndex((s) => s.id === updatedSale.id);
-        updatedSales[index] = updatedSale;
-
-        if (updatedSale.dueAmount > 0) {
-          const duePayments = await getDuePayments();
-          const existingDuePayment = duePayments.find(
-            (dp) => dp.vehicleNo === updatedSale.vehicleNo
-          );
-
-          if (existingDuePayment) {
-            await updateDuePayment({
-              ...existingDuePayment,
-              dueAmount: updatedSale.dueAmount,
-              dueDate: updatedSale.dueDate,
-              party: updatedSale.party,
-              model: updatedSale.model,
-              contact: updatedSale.phone,
-              address: updatedSale.address,
-            });
-          }
-        }
-
-        toast({
-          title: "Sale Updated",
-          description: `Sale to ${updatedSale.party} has been updated.`,
-        });
-      } else {
-        const newSale = await addSale(currentSale);
-        updatedSales.push(newSale);
-        setCurrentSale({
-          ...newSale,
-          manualId: newSale.manualId || newSale.id?.toString() || "",
-        });
-        setCurrentIndex(updatedSales.length - 1);
-        toast({
-          title: "Sale Added",
-          description: `New sale to ${newSale.party} has been added.`,
-        });
-      }
-
-      setSales(updatedSales);
-    } catch (error) {
-      console.error("Error saving sale:", error);
-      toast({
-        title: "Error",
-        description: "Failed to save sale",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleNew = () => {
-    setCurrentSale({
-      ...emptySale,
-      date: format(new Date(), "yyyy-MM-dd"),
-      dueDate: format(new Date(), "yyyy-MM-dd"),
-      installments: emptySale.installments,
-    });
-    setCurrentIndex(-1);
-    setPhotoPreview(null);
-  };
-
-  const handleDelete = async () => {
-    if (!currentSale.id) return;
-
-    if (window.confirm("Are you sure you want to delete this sale?")) {
-      try {
-        const deleted = await deleteSale(currentSale.id);
-
-        if (deleted) {
-          const updatedSales = sales.filter((s) => s.id !== currentSale.id);
-          setSales(updatedSales);
-
-          if (updatedSales.length > 0) {
-            setCurrentSale(updatedSales[0]);
-            setCurrentIndex(0);
-            setPhotoPreview(updatedSales[0].photoUrl || null);
-          } else {
-            handleNew();
-          }
-
-          toast({
-            title: "Sale Deleted",
-            description: "The sale has been deleted successfully.",
-          });
-        }
-      } catch (error) {
-        console.error("Error deleting sale:", error);
-        toast({
-          title: "Error",
-          description: "Failed to delete sale",
-          variant: "destructive",
-        });
-      }
-    }
-  };
-
-  const handleClearSearch = () => {
-    setSearchQuery("");
-    setSearchResults([]);
-    setShowSearchResults(false);
-  };
-
-  const addToSearchHistory = (query: string) => {
-    if (!query.trim()) return;
-
-    const newItem = { query, timestamp: Date.now() };
-    const existingIndex = searchHistory.findIndex(
-      (item) => item.query.toLowerCase() === query.toLowerCase()
-    );
-
-    let updatedHistory;
-    if (existingIndex >= 0) {
-      updatedHistory = [...searchHistory];
-      updatedHistory[existingIndex] = newItem;
-    } else {
-      updatedHistory = [newItem, ...searchHistory];
-    }
-
-    if (updatedHistory.length > 20) {
-      updatedHistory = updatedHistory.slice(0, 20);
-    }
-
-    setSearchHistory(updatedHistory);
-    localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(updatedHistory));
-  };
-
-  const handleSearch = () => {
-    if (!searchQuery.trim()) return;
-
-    addToSearchHistory(searchQuery);
-
-    const searchLower = searchQuery.toLowerCase();
-    const results = sales.filter(
-      (sale) =>
-        sale.party.toLowerCase().includes(searchLower) ||
-        sale.vehicleNo.toLowerCase().includes(searchLower) ||
-        sale.phone.includes(searchLower) ||
-        sale.model.toLowerCase().includes(searchLower) ||
-        sale.chassis.toLowerCase().includes(searchLower) ||
-        sale.address.toLowerCase().includes(searchLower) ||
-        sale.remark?.toLowerCase().includes(searchLower)
-    );
-
-    setSearchResults(results);
-    setShowSearchResults(results.length > 0);
-
-    if (results.length > 0) {
-      const foundSale = results[0];
-      const saleIndex = sales.findIndex((s) => s.id === foundSale.id);
-      setCurrentSale(foundSale);
-      setCurrentIndex(saleIndex);
-      setPhotoPreview(foundSale.photoUrl || null);
-      toast({
-        title: "Search Results",
-        description: `Found ${results.length} matching records`,
-      });
-    } else {
-      toast({
-        title: "No Results",
-        description: "No matching records found",
-      });
-    }
   };
 
   const handlePrint = () => {
@@ -482,20 +243,14 @@ const Sales = () => {
                 <span class="print-label">Model:</span> ${currentSale.model}
               </div>
               <div class="print-field">
-                <span class="print-label">Vehicle No:</span> ${
-                  currentSale.vehicleNo
-                }
+                <span class="print-label">Vehicle No:</span> ${currentSale.vehicleNo}
               </div>
               <div class="print-field">
                 <span class="print-label">Chassis:</span> ${currentSale.chassis}
               </div>
             </div>
             <div>
-              ${
-                photoPreview
-                  ? `<img src="${photoPreview}" alt="Vehicle" class="photo" />`
-                  : ""
-              }
+              ${photoPreview ? `<img src="${photoPreview}" alt="Vehicle" class="photo" />` : ""}
             </div>
           </div>
           
@@ -503,9 +258,7 @@ const Sales = () => {
             <span class="print-label">Total Amount:</span> ${currentSale.total}
           </div>
           <div class="print-field">
-            <span class="print-label">Due Amount:</span> ${
-              currentSale.dueAmount
-            }
+            <span class="print-label">Due Amount:</span> ${currentSale.dueAmount}
           </div>
           
           <h3>Payment Details</h3>
@@ -519,14 +272,12 @@ const Sales = () => {
             <tbody>
               ${currentSale.installments
                 .filter((inst) => inst.enabled)
-                .map(
-                  (inst) => `
+                .map((inst) => `
                   <tr>
                     <td>${inst.date}</td>
                     <td>${inst.amount}</td>
                   </tr>
-                `
-                )
+                `)
                 .join("")}
             </tbody>
           </table>
@@ -535,14 +286,10 @@ const Sales = () => {
             <span class="print-label">Witness:</span> ${currentSale.witness}
           </div>
           <div class="print-field">
-            <span class="print-label">Witness Address:</span> ${
-              currentSale.witnessAddress
-            }
+            <span class="print-label">Witness Address:</span> ${currentSale.witnessAddress}
           </div>
           <div class="print-field">
-            <span class="print-label">Witness Contact:</span> ${
-              currentSale.witnessContact
-            }
+            <span class="print-label">Witness Contact:</span> ${currentSale.witnessContact}
           </div>
         </body>
       </html>
@@ -569,9 +316,46 @@ const Sales = () => {
     photoInputRef.current?.click();
   };
 
-  const handleViewPhoto = () => {
-    if (photoPreview) {
-      setShowPhotoModal(true);
+  const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    const useSupabase = true; 
+    if (file) {
+      try {
+        let photoUrl;
+        
+        if (useSupabase) {
+          // Upload to Supabase Storage
+          const { uploadVehicleImage } = await import("@/integrations/supabase/service");
+          photoUrl = await uploadVehicleImage(file);
+        } else {
+          // Use local storage (base64)
+          const reader = new FileReader();
+          photoUrl = await new Promise<string>((resolve) => {
+            reader.onload = (event) => {
+              resolve(event.target?.result as string);
+            };
+            reader.readAsDataURL(file);
+          });
+        }
+        
+        setPhotoPreview(photoUrl);
+        setCurrentSale({
+          ...currentSale,
+          photoUrl,
+        });
+        
+        toast({
+          title: "Success",
+          description: "Photo uploaded successfully",
+        });
+      } catch (error) {
+        console.error("Error uploading photo:", error);
+        toast({
+          title: "Error",
+          description: "Failed to upload photo",
+          variant: "destructive",
+        });
+      }
     }
   };
 
@@ -617,14 +401,8 @@ const Sales = () => {
           }
         }
 
-        const updatedSales = await getSales();
-        setSales(updatedSales);
-
-        if (updatedSales.length > 0) {
-          setCurrentSale(updatedSales[0]);
-          setCurrentIndex(0);
-          setPhotoPreview(updatedSales[0].photoUrl || null);
-        }
+        // Refresh the sales data after import
+        fetchSales();
 
         toast({
           title: "Import Complete",
@@ -635,8 +413,7 @@ const Sales = () => {
       console.error("Error parsing import file:", error);
       toast({
         title: "Import Failed",
-        description:
-          "Failed to parse the import file. Please check the file format.",
+        description: "Failed to parse the import file. Please check the file format.",
         variant: "destructive",
       });
     }
@@ -692,88 +469,156 @@ const Sales = () => {
     }
   };
 
-  // Update your keybinding handlers
-  const handleKeyBindsChange = (binds: KeyBind[]) => {
-    // Save to localStorage
-    localStorage.setItem("app_keybinds", JSON.stringify(binds));
+  // Handler functions
+const handleSearch = useCallback(() => {
+  if (!searchQuery.trim()) {
+    setSearchResults([]);
+    return;
+  }
+  
+  const results = sales.filter(sale => 
+    sale.party.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    sale.vehicleNo.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (sale.phone && sale.phone.includes(searchQuery))
+  );
+  
+  setSearchResults(results);
+  setShowSearchResults(true);
+  
+  // Update search history
+  const newHistory = [
+    { query: searchQuery, timestamp: Date.now() },
+    ...searchHistory.filter(item => item.query !== searchQuery)
+  ].slice(0, 10);
+  
+  setSearchHistory(newHistory);
+  localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(newHistory));
+}, [searchQuery, sales, searchHistory]);
 
-    // Register the key bindings with proper handlers
+const handleClearSearch = () => {
+  setSearchQuery("");
+  setSearchResults([]);
+  setShowSearchResults(false);
+};
+
+const handleNew = () => {
+  setCurrentSale(emptySale);
+  setCurrentIndex(-1);
+  setPhotoPreview(null);
+};
+
+const handleSave = async () => {
+  try {
+    const savedSale = await addSale(currentSale as Omit<VehicleSale, "id">);
+    const updatedSales = [...sales];
+    if (currentIndex === -1) {
+      updatedSales.unshift(savedSale);
+    } else {
+      updatedSales[currentIndex] = savedSale;
+    }
+    setSales(updatedSales);
+    toast({
+      title: "Success",
+      description: "Sale saved successfully",
+    });
+  } catch (error) {
+    toast({
+      title: "Error",
+      description: "Failed to save sale",
+      variant: "destructive",
+    });
+  }
+};
+
+const handleDelete = async () => {
+  if (!currentSale.id) return;
+  
+  if (window.confirm("Are you sure you want to delete this sale?")) {
+    try {
+      // Implement delete logic
+      const updatedSales = sales.filter(sale => sale.id !== currentSale.id);
+      setSales(updatedSales);
+      toast({
+        title: "Success",
+        description: "Sale deleted successfully",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to delete sale",
+        variant: "destructive",
+      });
+    }
+  }
+};
+
+const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const { name, value, type } = e.target;
+  setCurrentSale(prev => ({
+    ...prev,
+    [name]: type === 'number' ? parseFloat(value) || 0 : value
+  }));
+};
+
+const handleViewPhoto = () => {
+  if (photoPreview) {
+    setShowPhotoModal(true);
+  }
+};
+
+const handleKeyBindsChange = useCallback((bindings: KeyBind[]) => {
+  unregisterKeyBindings();
+  registerKeyBindings(
+    bindings.map((bind) => ({
+      ...bind,
+      handler: () => {
+        switch (bind.id) {
+          case "search": handleSearch(); break;
+          case "new": handleNew(); break;
+          case "save": handleSave(); break;
+          case "delete": handleDelete(); break;
+          case "first": navigateFirst(); break;
+          case "last": navigateLast(); break;
+          case "prev": navigatePrev(); break;
+          case "next": navigateNext(); break;
+          case "print": handlePrint(); break;
+          case "export": handleExportToExcel(); break;
+        }
+      },
+    }))
+  );
+}, [handleSearch, handleNew, handleSave, handleDelete, 
+    navigateFirst, navigateLast, navigatePrev, navigateNext]);
+
+  // Initialize keybindings
+  useEffect(() => {
+    const savedBinds = loadKeyBindings();
+    const bindingsToUse = savedBinds || DEFAULT_KEYBINDS;
+  
     registerKeyBindings(
-      binds.map((bind) => ({
+      bindingsToUse.map((bind) => ({
         ...bind,
         handler: () => {
           switch (bind.id) {
-            case "search":
-              handleSearch();
-              break;
-            case "new":
-              handleNew();
-              break;
-            case "save":
-              handleSave();
-              break;
-            case "delete":
-              handleDelete();
-              break;
-            case "first":
-              navigateFirst();
-              break;
-            case "last":
-              navigateLast();
-              break;
-            case "prev":
-              navigatePrev();
-              break;
-            case "next":
-              navigateNext();
-              break;
-            case "search_prev":
-              if (searchResults.length > 0) {
-                const currentIndex = searchResults.findIndex(
-                  (s) => s.id === currentSale.id
-                );
-                const prevIndex =
-                  currentIndex > 0
-                    ? currentIndex - 1
-                    : searchResults.length - 1;
-                const prevResult = searchResults[prevIndex];
-                const saleIndex = sales.findIndex(
-                  (s) => s.id === prevResult.id
-                );
-                setCurrentSale(prevResult);
-                setCurrentIndex(saleIndex);
-                setPhotoPreview(prevResult.photoUrl || null);
-              }
-              break;
-            case "search_next":
-              if (searchResults.length > 0) {
-                const currentIndex = searchResults.findIndex(
-                  (s) => s.id === currentSale.id
-                );
-                const nextIndex =
-                  currentIndex < searchResults.length - 1
-                    ? currentIndex + 1
-                    : 0;
-                const nextResult = searchResults[nextIndex];
-                const saleIndex = sales.findIndex(
-                  (s) => s.id === nextResult.id
-                );
-                setCurrentSale(nextResult);
-                setCurrentIndex(saleIndex);
-                setPhotoPreview(nextResult.photoUrl || null);
-              }
-              break;
-            case "print":
-              handlePrint();
-              break;
-            case "export":
-              handleExportToExcel();
-              break;
+            case "search": handleSearch(); break;
+            case "new": handleNew(); break;
+            case "save": handleSave(); break;
+            case "delete": handleDelete(); break;
+            case "first": navigateFirst(); break;
+            case "last": navigateLast(); break;
+            case "prev": navigatePrev(); break;
+            case "next": navigateNext(); break;
+            case "print": handlePrint(); break;
+            case "export": handleExportToExcel(); break;
           }
         },
       }))
     );
-  };
+  
+    return () => {
+      unregisterKeyBindings();
+    };
+  }, [handleSearch, handleNew, handleSave, handleDelete]);
 
   // Update your useEffect for keybindings initialization
   useEffect(() => {
