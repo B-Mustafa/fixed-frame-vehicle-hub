@@ -1,16 +1,18 @@
-import React, { useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Camera, ZoomIn } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
-import { uploadVehicleImage } from "@/integrations/supabase/services/storageService";
-import ImagePreviewModal from "./ImagePreviewModal"; // Make sure this path is correct
 
-interface SalePhotoUploadProps {
+import React, { useState, useRef } from "react";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { uploadVehicleImage } from "@/integrations/supabase/services/storageService";
+import { useToast } from "@/hooks/use-toast";
+import { saveToBackup } from "@/utils/backupUtils";
+
+export interface SalePhotoUploadProps {
   photoPreview: string | null;
   setPhotoPreview: (url: string | null) => void;
   setCurrentSale: (sale: any) => void;
   currentSale: any;
   useSupabase: boolean;
+  onViewPhoto: () => void;
 }
 
 const SalePhotoUpload: React.FC<SalePhotoUploadProps> = ({
@@ -19,115 +21,135 @@ const SalePhotoUpload: React.FC<SalePhotoUploadProps> = ({
   setCurrentSale,
   currentSale,
   useSupabase,
+  onViewPhoto,
 }) => {
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
-  const photoInputRef = useRef<HTMLInputElement>(null);
-  const [showModal, setShowModal] = useState(false);
 
-  const handleAddPhoto = () => {
-    photoInputRef.current?.click();
-  };
-
-  const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    try {
-      let photoUrl;
-      
-      if (useSupabase) {
-        photoUrl = await uploadVehicleImage(file);
-      } else {
-        // Local storage fallback
-        photoUrl = await new Promise<string>((resolve) => {
-          const reader = new FileReader();
-          reader.onload = (event) => {
-            resolve(event.target?.result as string);
-          };
-          reader.readAsDataURL(file);
-        });
-      }
-
-      setPhotoPreview(photoUrl);
-      setCurrentSale({
-        ...currentSale,
-        photoUrl,
-      });
-
-      toast({
-        title: "Success",
-        description: "Photo uploaded successfully",
-      });
-    } catch (error) {
-      console.error("Error uploading photo:", error);
-      toast({
-        title: "Error",
-        description: "Failed to upload photo",
-        variant: "destructive",
-      });
+  const handleUploadClick = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
     }
   };
 
-  return (
-    <div className="border p-4 rounded-lg flex flex-col items-center justify-center bg-gray-50 min-h-[200px]">
-      <input
-        type="file"
-        ref={photoInputRef}
-        onChange={handlePhotoChange}
-        accept="image/*"
-        className="hidden"
-      />
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
 
-      {photoPreview ? (
-        <div className="relative w-full">
-          <ImagePreviewModal
-            imageUrl={photoPreview}
-            alt="Vehicle photo"
-            showModal={showModal}
-            onClose={() => setShowModal(false)}
-            trigger={
-              <div 
-                className="relative w-full h-[180px] mb-2 overflow-hidden rounded-lg bg-gray-100 cursor-pointer"
-                onClick={() => setShowModal(true)}
-              >
-                <img
-                  src={photoPreview}
-                  alt="Vehicle photo"
-                  className="w-full h-full object-contain"
-                />
-                <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 hover:opacity-100 transition-opacity">
-                  <ZoomIn className="h-8 w-8 text-white" />
-                </div>
+    try {
+      setUploading(true);
+
+      if (useSupabase) {
+        // Upload to Supabase Storage
+        const url = await uploadVehicleImage(file);
+        setPhotoPreview(url);
+        setCurrentSale({ ...currentSale, photoUrl: url });
+        toast({
+          title: "Photo Uploaded",
+          description: "Vehicle photo uploaded successfully",
+        });
+      } else {
+        // Direct file processing, no dialog shown
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const dataUrl = reader.result as string;
+          setPhotoPreview(dataUrl);
+          setCurrentSale({ ...currentSale, photoUrl: dataUrl });
+          
+          // Save to the fixed location automatically
+          const fileName = `vehicle_${currentSale.vehicleNo || currentSale.id || Date.now()}`;
+          saveToBackup(dataUrl, fileName, "image");
+          
+          toast({
+            title: "Photo Added",
+            description: "Vehicle photo has been added and saved locally",
+          });
+        };
+        reader.readAsDataURL(file);
+      }
+    } catch (error) {
+      console.error("Error uploading image:", error);
+      toast({
+        title: "Upload Failed",
+        description: "Failed to upload the vehicle photo",
+        variant: "destructive",
+      });
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleRemovePhoto = () => {
+    // No confirmation dialog, just remove
+    setPhotoPreview(null);
+    setCurrentSale({ ...currentSale, photoUrl: null });
+    toast({
+      title: "Photo Removed",
+      description: "Vehicle photo has been removed",
+    });
+  };
+
+  return (
+    <div className="col-span-1">
+      <Card className="overflow-hidden">
+        <div className="p-4 flex flex-col items-center space-y-3">
+          <div className="w-full h-48 bg-gray-100 flex items-center justify-center rounded-md overflow-hidden">
+            {photoPreview ? (
+              <img
+                src={photoPreview}
+                alt="Vehicle"
+                className="w-full h-full object-cover cursor-pointer"
+                onClick={onViewPhoto}
+              />
+            ) : (
+              <div className="text-gray-400 text-center p-4">
+                No photo uploaded
               </div>
-            }
-          />
-          <div className="flex mt-2 justify-center gap-2">
+            )}
+          </div>
+          <div className="flex space-x-2 w-full">
             <Button
+              type="button"
               variant="outline"
               size="sm"
-              onClick={handleAddPhoto}
+              className="flex-1"
+              onClick={handleUploadClick}
+              disabled={uploading}
             >
-              <Camera className="h-4 w-4 mr-2" /> Change
+              {uploading ? "Uploading..." : "Upload Photo"}
             </Button>
+            <input
+              type="file"
+              ref={fileInputRef}
+              className="hidden"
+              accept="image/*"
+              onChange={handleFileChange}
+              disabled={uploading}
+            />
+            {photoPreview && (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={onViewPhoto}
+                >
+                  View
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  onClick={handleRemovePhoto}
+                >
+                  Remove
+                </Button>
+              </>
+            )}
           </div>
         </div>
-      ) : (
-        <div className="flex flex-col items-center">
-          <div 
-            className="bg-gray-200 w-32 h-32 flex items-center justify-center rounded-lg mb-4 cursor-pointer"
-            onClick={handleAddPhoto}
-          >
-            <Camera className="h-12 w-12 text-gray-400" />
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleAddPhoto}
-          >
-            <Camera className="h-4 w-4 mr-2" /> Add Photo
-          </Button>
-        </div>
-      )}
+      </Card>
     </div>
   );
 };
