@@ -14,6 +14,8 @@ interface FileSystemDirectoryHandle {
     options?: { create: boolean }
   ): Promise<FileSystemFileHandle>;
   values(): AsyncIterable<FileSystemHandle>;
+  // Fix requestPermission method signature
+  requestPermission?: (options?: { mode: "read" | "readwrite" }) => Promise<PermissionState>;
 }
 
 interface FileSystemFileHandle {
@@ -94,7 +96,10 @@ export const saveToBackup = async (data: any, fileName: string, type: "excel" | 
     }
 
     try {
-      await savedDirectoryHandle.requestPermission({ mode: "readwrite" });
+      // Fix this method call if it exists
+      if (savedDirectoryHandle.requestPermission) {
+        await savedDirectoryHandle.requestPermission({ mode: "readwrite" });
+      }
     } catch (e) {
       try {
         savedDirectoryHandle = await window.showDirectoryPicker({

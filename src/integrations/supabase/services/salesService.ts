@@ -1,6 +1,7 @@
+
 import { supabase } from "../client";
 import { VehicleSale } from "@/utils/dataStorage";
-import { SupabaseSale } from "../types/sale";
+import { SupabaseSale, SupabaseInstallment } from "../types/sale";
 import {
   vehicleSaleToSupabase,
   supabaseToVehicleSale,
@@ -22,27 +23,7 @@ export const getSupabaseSales = async (): Promise<VehicleSale[]> => {
 
   return data.map(sale => {
     // Transform snake_case to camelCase and ensure all required fields are present
-    const transformedSale: VehicleSale = {
-      id: sale.id,
-      // Map all required fields here
-      transportCost: sale.transport_cost || 0,
-      dueDate: sale.due_date || "",
-      dueAmount: sale.due_amount || 0,
-      witnessAddress: sale.witness_address || "",
-      // ... other fields
-      installments: Array(18)
-        .fill(null)
-        .map((_, index) => {
-          const dbInstallment = sale.installments?.[index];
-          return dbInstallment ? {
-            date: dbInstallment.date || "",
-            amount: dbInstallment.amount || 0,
-            paid: dbInstallment.paid || 0,
-            enabled: dbInstallment.enabled || false
-          } : { ...emptyInstallment };
-        })
-    };
-    return transformedSale;
+    return supabaseToVehicleSale(sale, sale.installments || []);
   });
 };
 

@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -581,6 +580,7 @@ const Purchase = () => {
             photoUrl: row.Photo || "",
             brokerage: Number(row.Brokerage) || 0,
             manualId: row.ID?.toString() || "",
+            witness: row.Witness || "", // Add the missing witness property
           })
         );
 
