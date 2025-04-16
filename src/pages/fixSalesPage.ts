@@ -1,4 +1,4 @@
-
+import { handleTextAreaEvent } from '@/utils/domHelpers';
 // This file contains code snippets to fix Sales.tsx
 // Since we cannot edit Sales.tsx directly, you will need to make these changes there
 
@@ -7,8 +7,6 @@
 //   const target = e.target as HTMLInputElement;
 //   const value = target.value;
 // WITH:
-import { handleTextAreaEvent } from '@/utils/domHelpers';
-// ...
 const textarea = handleTextAreaEvent(e);
 const value = textarea.value;
 
@@ -35,4 +33,4 @@ toast(...);
 // has all required VehicleSale properties:
 // Add these fields to any objects that don't have them:
 // reminder: "00:00",
-// rcBook: false,
+// rcBook: false
