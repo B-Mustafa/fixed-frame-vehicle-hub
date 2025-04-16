@@ -132,6 +132,7 @@ export type Database = {
           due_date: string | null
           finance: number | null
           id: number
+          installments: Json | null
           insurance: number | null
           manual_id: string | null
           model: string
@@ -162,6 +163,7 @@ export type Database = {
           due_date?: string | null
           finance?: number | null
           id?: number
+          installments?: Json | null
           insurance?: number | null
           manual_id?: string | null
           model: string
@@ -192,6 +194,7 @@ export type Database = {
           due_date?: string | null
           finance?: number | null
           id?: number
+          installments?: Json | null
           insurance?: number | null
           manual_id?: string | null
           model?: string

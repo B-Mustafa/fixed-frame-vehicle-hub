@@ -1,3 +1,4 @@
+
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
 
@@ -75,7 +76,7 @@ export const saveToBackup = async (data: any, fileName: string, type: "excel" | 
     if (!savedDirectoryHandle) {
       try {
         savedDirectoryHandle = await window.showDirectoryPicker({
-          id: "backupFolder",
+          id: "dataFolder",
           mode: "readwrite",
           startIn: "documents",
         });
@@ -97,7 +98,7 @@ export const saveToBackup = async (data: any, fileName: string, type: "excel" | 
     } catch (e) {
       try {
         savedDirectoryHandle = await window.showDirectoryPicker({
-          id: "backupFolder",
+          id: "dataFolder",
           mode: "readwrite",
           startIn: "documents",
         });
@@ -110,13 +111,14 @@ export const saveToBackup = async (data: any, fileName: string, type: "excel" | 
       }
     }
 
-    const backupHandle = await savedDirectoryHandle.getDirectoryHandle(
-      "backup",
+    // Create the data directory
+    const dataHandle = await savedDirectoryHandle.getDirectoryHandle(
+      "data",
       { create: true }
     );
 
     if (type === "excel") {
-      const fileHandle = await backupHandle.getFileHandle(`${fileName}.xlsx`, {
+      const fileHandle = await dataHandle.getFileHandle(`${fileName}.xlsx`, {
         create: true,
       });
       const writable = await fileHandle.createWritable();
@@ -130,7 +132,7 @@ export const saveToBackup = async (data: any, fileName: string, type: "excel" | 
       await writable.close();
     } else if (type === "image" && typeof data === "string") {
       const extension = data.split(";")[0].split("/")[1] || "jpg";
-      const fileHandle = await backupHandle.getFileHandle(
+      const fileHandle = await dataHandle.getFileHandle(
         `${fileName}.${extension}`,
         { create: true }
       );
@@ -172,7 +174,45 @@ export const importSalesFromExcel = async (file: File) => {
     const data = await file.arrayBuffer();
     const workbook = XLSX.read(data);
     const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-    return XLSX.utils.sheet_to_json(worksheet);
+    
+    // Get data as JSON
+    const jsonData = XLSX.utils.sheet_to_json(worksheet);
+    
+    // Process the data to convert installment fields back to array
+    const processedData = jsonData.map((item: any) => {
+      const sale: any = { ...item };
+      const installments = [];
+      
+      // Look for instl fields and reconstruct the installments array
+      for (let i = 1; i <= 18; i++) {
+        const dateField = `instl${i}_date`;
+        const amountField = `instl${i}_amount`;
+        const paidField = `instl${i}_paid`;
+        
+        if (sale[dateField] || sale[amountField]) {
+          installments.push({
+            date: sale[dateField] || "",
+            amount: parseFloat(sale[amountField] || 0),
+            paid: parseFloat(sale[paidField] || 0),
+            enabled: true
+          });
+          
+          // Remove these fields from the main object
+          delete sale[dateField];
+          delete sale[amountField];
+          delete sale[paidField];
+        }
+      }
+      
+      // If installments were found, add them to the sale object
+      if (installments.length > 0) {
+        sale.installments = installments;
+      }
+      
+      return sale;
+    });
+    
+    return processedData;
   } catch (error) {
     console.error("Error importing from Excel:", error);
     return [];

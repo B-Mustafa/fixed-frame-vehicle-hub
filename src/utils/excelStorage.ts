@@ -1,5 +1,6 @@
 
 import * as XLSX from 'xlsx';
+import { saveAs } from 'file-saver';
 import { VehicleSale, VehiclePurchase, DuePayment } from './dataStorage';
 
 // Function to export data to Excel with styling
@@ -32,33 +33,48 @@ export const exportToExcel = <T extends Record<string, any>[]>(data: T, fileName
   }
 };
 
-// Function to export sales data
+// Function to export sales data with flattened installments
 export const exportSalesToExcel = (sales: VehicleSale[], fileName?: string): void => {
-  // Format sales data for export
-  const exportData = sales.map(sale => ({
-    ID: sale.id,
-    Date: sale.date,
-    Party: sale.party,
-    Address: sale.address,
-    Phone: sale.phone,
-    Model: sale.model,
-    VehicleNo: sale.vehicleNo,
-    Chassis: sale.chassis,
-    Price: sale.price,
-    TransportCost: sale.transportCost,
-    Insurance: sale.insurance,
-    Finance: sale.finance,
-    Repair: sale.repair,
-    Penalty: sale.penalty,
-    Total: sale.total,
-    DueDate: sale.dueDate,
-    DueAmount: sale.dueAmount,
-    Witness: sale.witness,
-    WitnessAddress: sale.witnessAddress,
-    WitnessContact: sale.witnessContact,
-    WitnessName2: sale.witnessName2,
-    Status: sale.dueAmount > 0 ? 'Due' : 'Paid'
-  }));
+  // Format sales data for export with flattened installments
+  const exportData = sales.map(sale => {
+    const flattenedSale: any = {
+      ID: sale.id,
+      Date: sale.date,
+      Party: sale.party,
+      Address: sale.address,
+      Phone: sale.phone,
+      Model: sale.model,
+      VehicleNo: sale.vehicleNo,
+      Chassis: sale.chassis,
+      Price: sale.price,
+      TransportCost: sale.transportCost,
+      Insurance: sale.insurance,
+      Finance: sale.finance,
+      Repair: sale.repair,
+      Penalty: sale.penalty,
+      Total: sale.total,
+      DueDate: sale.dueDate,
+      DueAmount: sale.dueAmount,
+      Witness: sale.witness,
+      WitnessAddress: sale.witnessAddress,
+      WitnessContact: sale.witnessContact,
+      WitnessName2: sale.witnessName2,
+      Status: sale.dueAmount > 0 ? 'Due' : 'Paid'
+    };
+    
+    // Add installments as individual columns
+    if (sale.installments && Array.isArray(sale.installments)) {
+      sale.installments.forEach((installment, index) => {
+        if (installment.enabled) {
+          flattenedSale[`instl${index + 1}_date`] = installment.date;
+          flattenedSale[`instl${index + 1}_amount`] = installment.amount;
+          flattenedSale[`instl${index + 1}_paid`] = installment.paid;
+        }
+      });
+    }
+    
+    return flattenedSale;
+  });
   
   const defaultFileName = `sales_export_${new Date().toISOString().slice(0, 16).replace(/:/g, '-')}.xlsx`;
   exportToExcel(exportData, fileName || defaultFileName, 'Sales');
@@ -144,77 +160,113 @@ export const importFromExcel = async (file: File): Promise<any[]> => {
   });
 };
 
-// Function to import sales data from Excel
+// Function to import sales data from Excel with installment handling
 export const importSalesFromExcel = async (file: File): Promise<Partial<VehicleSale>[]> => {
   const data = await importFromExcel(file);
   
   // Map the imported data to the VehicleSale structure
   return data.map(item => {
     const sale: Partial<VehicleSale> = {};
+    const installments: any[] = [];
     
-    // Map fields from Excel to our data structure
-    // Handle different possible column names
-    if ('ID' in item) sale.id = Number(item.ID);
-    if ('Id' in item) sale.id = Number(item.Id);
-    if ('id' in item) sale.id = Number(item.id);
+    // Process all keys in the item
+    Object.keys(item).forEach(key => {
+      // Check if this is an installment field
+      const instlMatch = key.match(/^instl(\d+)_(.+)$/);
+      
+      if (instlMatch) {
+        const [, indexStr, fieldName] = instlMatch;
+        const index = parseInt(indexStr) - 1;
+        
+        // Initialize the installment at this index if it doesn't exist
+        if (!installments[index]) {
+          installments[index] = {
+            date: "",
+            amount: 0,
+            paid: 0,
+            enabled: true
+          };
+        }
+        
+        // Set the field value
+        if (fieldName === 'date') {
+          installments[index].date = String(item[key]);
+        } else if (fieldName === 'amount') {
+          installments[index].amount = Number(item[key]);
+        } else if (fieldName === 'paid') {
+          installments[index].paid = Number(item[key]);
+        }
+      } else {
+        // Handle regular fields
+        // Map fields from Excel to our data structure
+        if (key === 'ID' || key === 'Id' || key === 'id') {
+          sale.id = Number(item[key]);
+        } else if (key === 'Date' || key === 'date') {
+          sale.date = String(item[key]);
+        } else if (key === 'Party' || key === 'party') {
+          sale.party = String(item[key]);
+        } else if (key === 'Address' || key === 'address') {
+          sale.address = String(item[key]);
+        } else if (key === 'Phone' || key === 'phone') {
+          sale.phone = String(item[key]);
+        } else if (key === 'Model' || key === 'model') {
+          sale.model = String(item[key]);
+        } else if (key === 'VehicleNo' || key === 'vehicleNo' || key === 'Vehicle No') {
+          sale.vehicleNo = String(item[key]);
+        } else if (key === 'Chassis' || key === 'chassis') {
+          sale.chassis = String(item[key]);
+        } else if (key === 'Price' || key === 'price') {
+          sale.price = Number(item[key]);
+        } else if (key === 'TransportCost' || key === 'transportCost' || key === 'Transport Cost') {
+          sale.transportCost = Number(item[key]);
+        } else if (key === 'Insurance' || key === 'insurance') {
+          sale.insurance = Number(item[key]);
+        } else if (key === 'Finance' || key === 'finance') {
+          sale.finance = Number(item[key]);
+        } else if (key === 'Repair' || key === 'repair') {
+          sale.repair = Number(item[key]);
+        } else if (key === 'Penalty' || key === 'penalty') {
+          sale.penalty = Number(item[key]);
+        } else if (key === 'Total' || key === 'total') {
+          sale.total = Number(item[key]);
+        } else if (key === 'DueDate' || key === 'dueDate' || key === 'Due Date') {
+          sale.dueDate = String(item[key]);
+        } else if (key === 'DueAmount' || key === 'dueAmount' || key === 'Due Amount') {
+          sale.dueAmount = Number(item[key]);
+        } else if (key === 'Witness' || key === 'witness') {
+          sale.witness = String(item[key]);
+        } else if (key === 'WitnessAddress' || key === 'witnessAddress') {
+          sale.witnessAddress = String(item[key]);
+        } else if (key === 'WitnessContact' || key === 'witnessContact') {
+          sale.witnessContact = String(item[key]);
+        } else if (key === 'WitnessName2' || key === 'witnessName2') {
+          sale.witnessName2 = String(item[key]);
+        }
+      }
+    });
     
-    if ('Date' in item) sale.date = String(item.Date);
-    if ('date' in item) sale.date = String(item.date);
-    
-    if ('Party' in item) sale.party = String(item.Party);
-    if ('party' in item) sale.party = String(item.party);
-    
-    if ('Address' in item) sale.address = String(item.Address);
-    if ('address' in item) sale.address = String(item.address);
-    
-    if ('Phone' in item) sale.phone = String(item.Phone);
-    if ('phone' in item) sale.phone = String(item.phone);
-    
-    if ('Model' in item) sale.model = String(item.Model);
-    if ('model' in item) sale.model = String(item.model);
-    
-    if ('VehicleNo' in item) sale.vehicleNo = String(item.VehicleNo);
-    if ('vehicleNo' in item) sale.vehicleNo = String(item.vehicleNo);
-    if ('Vehicle No' in item) sale.vehicleNo = String(item['Vehicle No']);
-    
-    if ('Chassis' in item) sale.chassis = String(item.Chassis);
-    if ('chassis' in item) sale.chassis = String(item.chassis);
-    
-    if ('Price' in item) sale.price = Number(item.Price);
-    if ('price' in item) sale.price = Number(item.price);
-    
-    if ('TransportCost' in item) sale.transportCost = Number(item.TransportCost);
-    if ('transportCost' in item) sale.transportCost = Number(item.transportCost);
-    if ('Transport Cost' in item) sale.transportCost = Number(item['Transport Cost']);
-    
-    if ('Insurance' in item) sale.insurance = Number(item.Insurance);
-    if ('insurance' in item) sale.insurance = Number(item.insurance);
-    
-    if ('Finance' in item) sale.finance = Number(item.Finance);
-    if ('finance' in item) sale.finance = Number(item.finance);
-    
-    if ('Repair' in item) sale.repair = Number(item.Repair);
-    if ('repair' in item) sale.repair = Number(item.repair);
-    
-    if ('Penalty' in item) sale.penalty = Number(item.Penalty);
-    if ('penalty' in item) sale.penalty = Number(item.penalty);
-    
-    if ('Total' in item) sale.total = Number(item.Total);
-    if ('total' in item) sale.total = Number(item.total);
-    
-    if ('DueDate' in item) sale.dueDate = String(item.DueDate);
-    if ('dueDate' in item) sale.dueDate = String(item.dueDate);
-    if ('Due Date' in item) sale.dueDate = String(item['Due Date']);
-    
-    if ('DueAmount' in item) sale.dueAmount = Number(item.DueAmount);
-    if ('dueAmount' in item) sale.dueAmount = Number(item.dueAmount);
-    if ('Due Amount' in item) sale.dueAmount = Number(item['Due Amount']);
+    // Add non-empty installments to the sale
+    if (installments.length > 0) {
+      const validInstallments = installments.filter(inst => inst && (inst.date || inst.amount > 0));
+      if (validInstallments.length > 0) {
+        // Fill in the array to match the expected size
+        const fullInstallments = Array(18).fill(0).map((_, i) => {
+          return installments[i] || {
+            date: "",
+            amount: 0,
+            paid: 0,
+            enabled: false
+          };
+        });
+        sale.installments = fullInstallments;
+      }
+    }
     
     return sale;
   });
 };
 
-// Function to create a full backup as Excel workbook
+// Function to create a full backup as Excel workbook with flattened installments
 export const createFullBackupExcel = (
   sales: VehicleSale[], 
   purchases: VehiclePurchase[], 
@@ -222,8 +274,26 @@ export const createFullBackupExcel = (
   fileName?: string
 ): void => {
   try {
+    // Flatten sales data with installments as individual columns
+    const flattenedSales = sales.map(sale => {
+      const flatSale: any = { ...sale };
+      delete flatSale.installments;
+      
+      if (sale.installments && Array.isArray(sale.installments)) {
+        sale.installments.forEach((installment, index) => {
+          if (installment.enabled) {
+            flatSale[`instl${index + 1}_date`] = installment.date;
+            flatSale[`instl${index + 1}_amount`] = installment.amount;
+            flatSale[`instl${index + 1}_paid`] = installment.paid;
+          }
+        });
+      }
+      
+      return flatSale;
+    });
+    
     // Create worksheets
-    const salesWorksheet = XLSX.utils.json_to_sheet(sales);
+    const salesWorksheet = XLSX.utils.json_to_sheet(flattenedSales);
     const purchasesWorksheet = XLSX.utils.json_to_sheet(purchases);
     const duePaymentsWorksheet = XLSX.utils.json_to_sheet(duePayments);
     

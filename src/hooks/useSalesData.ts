@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -17,6 +18,8 @@ import {
   deleteSupabaseSale,
 } from "@/integrations/supabase/service";
 import { DuePayment } from "@/utils/dataStorage";
+import { saveToBackup } from "@/utils/backupUtils";
+import { exportSalesToExcel } from "@/utils/excelStorage";
 
 export const emptySale: Omit<VehicleSale, "id"> = {
   date: format(new Date(), "yyyy-MM-dd"),
@@ -157,6 +160,50 @@ export const useSalesData = () => {
     }
   };
 
+  const saveToLocalStorage = async (sale: VehicleSale) => {
+    try {
+      // Save the image to the local 'data' folder if it exists
+      if (sale.photoUrl && sale.photoUrl.startsWith('data:')) {
+        const imageFileName = `sales_${sale.vehicleNo?.replace(/\s+/g, '_') || sale.id}`;
+        const saved = await saveToBackup(sale.photoUrl, imageFileName, "image");
+        
+        if (saved) {
+          console.log(`Image saved as ${imageFileName}`);
+        }
+      }
+      
+      // Create a flattened object for Excel export with installments as separate fields
+      const flattenedSale = { ...sale };
+      
+      // Convert installments array to individual fields
+      if (sale.installments && Array.isArray(sale.installments)) {
+        sale.installments.forEach((installment, index) => {
+          if (installment.enabled) {
+            (flattenedSale as any)[`instl${index + 1}_date`] = installment.date;
+            (flattenedSale as any)[`instl${index + 1}_amount`] = installment.amount;
+            (flattenedSale as any)[`instl${index + 1}_paid`] = installment.paid;
+          }
+        });
+      }
+      
+      // Delete the array from the flattened object to avoid duplication
+      delete (flattenedSale as any).installments;
+      
+      // Save the sale data as Excel in the 'data' folder
+      const excelFileName = `sale_data_${sale.vehicleNo?.replace(/\s+/g, '_') || sale.id}`;
+      const saved = await saveToBackup(flattenedSale, excelFileName, "excel");
+      
+      if (saved) {
+        console.log(`Sale data saved as ${excelFileName}.xlsx`);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error("Error saving to local storage:", error);
+      return false;
+    }
+  };
+
   const handleSave = async () => {
     if (!currentSale.party || !currentSale.vehicleNo || !currentSale.model) {
       toast({
@@ -239,6 +286,15 @@ export const useSalesData = () => {
       }
 
       setSales(updatedSales);
+      
+      // Save to local folder structure regardless of Supabase setting
+      const localSaved = await saveToLocalStorage(updatedSale);
+      if (localSaved) {
+        toast({
+          title: "Local Backup Created",
+          description: "Sale data and image saved to local data folder",
+        });
+      }
     } catch (error) {
       console.error("Error saving sale:", error);
       toast({
