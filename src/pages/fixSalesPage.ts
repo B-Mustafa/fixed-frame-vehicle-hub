@@ -34,5 +34,5 @@ toast(...);
 // Make sure any object with partial fields being mapped to sales array 
 // has all required VehicleSale properties:
 // Add these fields to any objects that don't have them:
-reminder: "00:00",
-rcBook: false,
+// reminder: "00:00",
+// rcBook: false,
