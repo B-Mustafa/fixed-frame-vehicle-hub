@@ -48,7 +48,8 @@ const emptyPurchase: Omit<VehiclePurchase, "id"> = {
   total: 0,
   photoUrl: "",
   manualId: "", // Added manualId to match the interface
-  brokerage: 0
+  brokerage: 0,
+  witness: "",
 };
 
 // Key for storing search history in localStorage
@@ -698,9 +699,9 @@ const Purchase = () => {
   };
 
   return (
-    <div className="h-full p-4 bg-white overflow-auto">
+    <div className="h-full p-4 bg-blue-500 overflow-auto font-bold text-xl ">
       {/* Navigation buttons and search */}
-      <div className="flex flex-wrap items-center justify-between mb-4 gap-2 sticky top-0 bg-white z-10 pb-2">
+      <div className="flex flex-wrap items-center justify-between mb-4 gap-2 sticky top-0 z-10 pb-2">
         <div className="flex items-center gap-2 flex-wrap">
           <Button
             variant="outline"
@@ -965,7 +966,7 @@ const Purchase = () => {
         <div className="col-span-1 md:col-span-3 p-4 rounded overflow-y-auto">
           {/* Transaction Details */}
           <div className="mb-4">
-            <h3
+            {/* <h3
               className="mb-2"
               style={{
                 backgroundColor: labelColor,
@@ -974,7 +975,7 @@ const Purchase = () => {
               }}
             >
               Transaction Details
-            </h3>
+            </h3> */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="flex">
                 <label
@@ -995,7 +996,7 @@ const Purchase = () => {
                     ""
                   }
                   onChange={handleInputChange}
-                  className="flex-1"
+                  className="flex-1 text-2xl"
                 />
               </div>
               <div className="flex">
@@ -1014,7 +1015,7 @@ const Purchase = () => {
                   name="date"
                   value={currentPurchase.date}
                   onChange={handleInputChange}
-                  className="flex-1"
+                  className="flex-1 text-2xl"
                 />
               </div>
             </div>
@@ -1022,7 +1023,7 @@ const Purchase = () => {
 
           {/* Party Details */}
           <div className="mb-4">
-            <h3
+            {/* <h3
               className="mb-2"
               style={{
                 backgroundColor: labelColor,
@@ -1031,7 +1032,7 @@ const Purchase = () => {
               }}
             >
               Party Details
-            </h3>
+            </h3> */}
             <div className="space-y-2">
               <div className="flex">
                 <label
@@ -1048,7 +1049,7 @@ const Purchase = () => {
                   name="party"
                   value={currentPurchase.party}
                   onChange={handleInputChange}
-                  className="flex-1"
+                  className="flex-1 text-2xl"
                 />
               </div>
               <div className="flex">
@@ -1066,7 +1067,7 @@ const Purchase = () => {
                   name="address"
                   value={currentPurchase.address}
                   onChange={handleInputChange}
-                  className="flex-1"
+                  className="flex-1 text-2xl"
                 />
               </div>
               <div className="flex">
@@ -1084,7 +1085,7 @@ const Purchase = () => {
                   name="phone"
                   value={currentPurchase.phone}
                   onChange={handleInputChange}
-                  className="flex-1"
+                  className="flex-1 text-2xl"
                 />
               </div>
             </div>
@@ -1092,7 +1093,7 @@ const Purchase = () => {
 
           {/* Vehicle Details */}
           <div className="mb-4">
-            <h3
+            {/* <h3
               className="mb-2"
               style={{
                 backgroundColor: labelColor,
@@ -1101,7 +1102,7 @@ const Purchase = () => {
               }}
             >
               Vehicle Details
-            </h3>
+            </h3> */}
             <div className="space-y-2">
               <div className="flex">
                 <label
@@ -1118,12 +1119,12 @@ const Purchase = () => {
                   name="model"
                   value={currentPurchase.model}
                   onChange={handleInputChange}
-                  className="flex-1"
+                  className="flex-1 text-2xl"
                 />
               </div>
               <div className="flex">
                 <label
-                  className="w-20"
+                  className="w-24"
                   style={{
                     backgroundColor: labelColor,
                     padding: "4px 8px",
@@ -1136,7 +1137,7 @@ const Purchase = () => {
                   name="vehicleNo"
                   value={currentPurchase.vehicleNo}
                   onChange={handleInputChange}
-                  className="flex-1"
+                  className="flex-1 text-2xl"
                 />
               </div>
               <div className="flex">
@@ -1154,7 +1155,7 @@ const Purchase = () => {
                   name="chassis"
                   value={currentPurchase.chassis}
                   onChange={handleInputChange}
-                  className="flex-1"
+                  className="flex-1 text-2xl"
                 />
               </div>
             </div>
@@ -1162,7 +1163,7 @@ const Purchase = () => {
 
           {/* Cost Details */}
           <div className="mb-4">
-            <h3
+            {/* <h3
               className="mb-2"
               style={{
                 backgroundColor: labelColor,
@@ -1171,14 +1172,14 @@ const Purchase = () => {
               }}
             >
               Cost Details
-            </h3>
-            <div className="space-y-2">
+            </h3> */}
+            <div className="gap-y-2 grid grid-cols-2">
               <div className="flex">
                 <label
                   className="w-20"
                   style={{
                     backgroundColor: labelColor,
-                    padding: "4px 8px",
+                    padding: "0px 2px",
                     borderRadius: "4px",
                   }}
                 >
@@ -1189,7 +1190,26 @@ const Purchase = () => {
                   name="price"
                   value={currentPurchase.price || ""}
                   onChange={handleInputChange}
-                  className="flex-1"
+                  className="flex-1 text-2xl py-4"
+                />
+              </div>
+              <div className="flex">
+                <label
+                  className="w-24"
+                  style={{
+                    backgroundColor: labelColor,
+                    padding: "4px 8px",
+                    borderRadius: "4px",
+                  }}
+                >
+                  Witness
+                </label>
+                <Input
+                  type="text"
+                  name="witness"
+                  value={currentPurchase.witness || ""}
+                  onChange={handleInputChange}
+                  className="flex-1 text-2xl"
                 />
               </div>
               <div className="flex">
@@ -1208,7 +1228,26 @@ const Purchase = () => {
                   name="transportCost"
                   value={currentPurchase.transportCost || ""}
                   onChange={handleInputChange}
-                  className="flex-1"
+                  className="flex-1 text-2xl"
+                />
+              </div>
+              <div className="flex">
+                <label
+                  className="w-24"
+                  style={{
+                    backgroundColor: labelColor,
+                    padding: "4px 8px",
+                    borderRadius: "4px",
+                  }}
+                >
+                  Address
+                </label>
+                <Input
+                  readOnly
+                  type="text"
+                  name="address"
+                  value={currentPurchase.address || ""}
+                  className="flex-1 text-2xl bg-gray-50"
                 />
               </div>
               <div className="flex">
@@ -1220,16 +1259,36 @@ const Purchase = () => {
                     borderRadius: "4px",
                   }}
                 >
-                  Brokerage
+                  Broker
                 </label>
                 <Input
                   type="number"
                   name="brokerage"
                   value={currentPurchase.brokerage || ""}
                   onChange={handleInputChange}
-                  className="flex-1"
+                  className="flex-1 text-2xl"
                 />
               </div>
+              <div className="flex">
+                <label
+                  className="w-36"
+                  style={{
+                    backgroundColor: labelColor,
+                    padding: "2px 8px",
+                    borderRadius: "4px",
+                  }}
+                >
+                  Phone No
+                </label>
+                <Input
+                  type="number"
+                  name="phone"
+                  value={currentPurchase.phone || ""}
+                  onChange={handleInputChange}
+                  className="flex-1 text-2xl"
+                />
+              </div>
+              
               <div className="flex">
                 <label
                   className="w-20"
@@ -1246,7 +1305,7 @@ const Purchase = () => {
                   type="number"
                   name="total"
                   value={currentPurchase.total || ""}
-                  className="flex-1 bg-gray-50"
+                  className="flex-1 text-2xl bg-gray-50"
                 />
               </div>
             </div>
@@ -1270,7 +1329,7 @@ const Purchase = () => {
                   name="remark"
                   value={currentPurchase.remark}
                   onChange={handleInputChange}
-                  className="flex-1"
+                  className="flex-1 text-2xl"
                 />
               </div>
             </div>
@@ -1291,7 +1350,7 @@ const Purchase = () => {
               Vehicle Photo
             </h3>
 
-            <div className="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-md p-4 mb-4 relative">
+            <div className="flex-1 text-2xl flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-md p-4 mb-4 relative">
               {photoPreview ? (
                 <div className="relative w-full h-full flex items-center justify-center">
                   <div

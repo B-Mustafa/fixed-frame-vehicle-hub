@@ -1,3 +1,5 @@
+import { VehicleSale } from "@/utils/dataStorage";
+import { SupabaseSale } from "../service";
 
 // Function to convert snake_case to camelCase
 export const snakeToCamel = (str: string): string => {
@@ -23,66 +25,85 @@ export const camelToSnake = (str: string): string => {
   return str.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
 };
 
-// Convert VehicleSale to the format expected by Supabase
-export const vehicleSaleToSupabase = (sale: any) => {
+export const vehicleSaleToSupabase = (sale: VehicleSale) => {
+  // Helper function to convert dd/mm/yyyy to yyyy-mm-dd
+  const convertToSupabaseDate = (dateString: string) => {
+    if (!dateString) return null;
+    
+    // If already in ISO format, return as-is
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateString)) return dateString;
+    
+    // Convert from dd/mm/yyyy to yyyy-mm-dd
+    const [day, month, year] = dateString.split('/');
+    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+  };
+
   return {
-    date: sale.date,
+    date: convertToSupabaseDate(sale.date),
     party: sale.party,
-    address: sale.address || '',
-    phone: sale.phone || '',
+    address: sale.address,
+    phone: sale.phone,
     model: sale.model,
     vehicle_no: sale.vehicleNo,
-    chassis: sale.chassis || '',
-    price: sale.price || 0,
-    transport_cost: sale.transportCost || 0,
-    insurance: sale.insurance || 0,
-    finance: sale.finance || 0,
-    repair: sale.repair || 0,
-    penalty: sale.penalty || 0,
-    total: sale.total || 0,
-    due_date: sale.dueDate || '',
-    due_amount: sale.dueAmount || 0,
-    witness: sale.witness || '',
-    witness_address: sale.witnessAddress || '',
-    witness_contact: sale.witnessContact || '',
-    witness_name2: sale.witnessName2 || '',
-    rc_book: sale.rcBook || false,
-    photo_url: sale.photoUrl || '',
-    manual_id: sale.manualId || '',
-    reminder: sale.reminder || '00:00',
-    remark: sale.remark || ''
+    chassis: sale.chassis,
+    price: sale.price,
+    transport_cost: sale.transportCost,
+    insurance: sale.insurance,
+    finance: sale.finance,
+    repair: sale.repair,
+    penalty: sale.penalty,
+    total: sale.total,
+    due_amount: sale.dueAmount,
+    due_date: convertToSupabaseDate(sale.dueDate),
+    witness: sale.witness,
+    witness_address: sale.witnessAddress,
+    witness_contact: sale.witnessContact,
+    witness_name2: sale.witnessName2,
+    remark: sale.remark,
+    photo_url: sale.photoUrl,
+    manual_id: sale.manualId,
   };
 };
 
-// Convert Supabase data to VehicleSale
-export const supabaseToVehicleSale = (data: any, installments: any[] = []) => {
+
+export const supabaseToVehicleSale = (sale: SupabaseSale, installments?: any[]): VehicleSale => {
+  // Parse installments from JSON string if they exist
+  const parsedInstallments = sale.installments 
+    ? JSON.parse(sale.installments)
+    : installments || Array(18).fill(0).map(() => ({
+        date: "",
+        amount: 0,
+        paid: 0,
+        enabled: false
+      }));
+  
   return {
-    id: data.id,
-    date: data.date,
-    party: data.party,
-    address: data.address || '',
-    phone: data.phone || '',
-    model: data.model,
-    vehicleNo: data.vehicle_no,
-    chassis: data.chassis || '',
-    price: data.price || 0,
-    transportCost: data.transport_cost || 0,
-    insurance: data.insurance || 0,
-    finance: data.finance || 0,
-    repair: data.repair || 0,
-    penalty: data.penalty || 0,
-    total: data.total || 0,
-    dueDate: data.due_date || '',
-    dueAmount: data.due_amount || 0,
-    witness: data.witness || '',
-    witnessAddress: data.witness_address || '',
-    witnessContact: data.witness_contact || '',
-    witnessName2: data.witness_name2 || '',
-    remark: data.remark || '',
-    photoUrl: data.photo_url || '',
-    manualId: data.manual_id || '',
-    reminder: data.reminder || '00:00',
-    rcBook: data.rc_book || false,
-    installments: installments
+    id: sale.id,
+    date: sale.date,
+    party: sale.party,
+    address: sale.address,
+    phone: sale.phone,
+    remark: sale.remark,
+    model: sale.model,
+    vehicleNo: sale.vehicleNo,
+    photoUrl: sale.photoUrl,
+    chassis: sale.chassis,
+    price: sale.price,
+    transportCost: sale.transportCost,
+    insurance: sale.insurance,
+    finance: sale.finance,
+    repair: sale.repair,
+    penalty: sale.penalty,
+    total: sale.total,
+    dueDate: sale.dueDate,
+    dueAmount: sale.dueAmount,
+    reminder: sale.reminder,
+    witness: sale.witness,
+    witnessAddress: sale.witnessAddress,
+    witnessContact: sale.witnessContact,
+    witnessName2: sale.witnessName2,
+    rcBook: sale.rcBook,
+    manualId: sale.manualId,
+    installments: parsedInstallments
   };
 };

@@ -1,21 +1,38 @@
-
 import { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useNavigate, Link, Outlet, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { 
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuTrigger
+  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { createBackup, restoreBackup, resetLastId, configureNasStorage } from "@/utils/dataStorage";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import {
+  createBackup,
+  restoreBackup,
+  resetLastId,
+  configureNasStorage,
+} from "@/utils/dataStorage";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import NasConfig from "./NasConfig";
-import { Bike, BikeIcon, Factory, Instagram, InstagramIcon, LucideBike } from "lucide-react";
+import {
+  Bike,
+  BikeIcon,
+  Factory,
+  Instagram,
+  InstagramIcon,
+  LucideBike,
+} from "lucide-react";
 import KeyBindDialog from "./KeyBindDialog";
 
 const Layout = () => {
@@ -34,10 +51,10 @@ const Layout = () => {
       navigate("/login");
     }
     // Load NAS configuration on startup if saved
-    const nasUrl = localStorage.getItem('nasUrl');
-    const nasPath = localStorage.getItem('nasPath');
+    const nasUrl = localStorage.getItem("nasUrl");
+    const nasPath = localStorage.getItem("nasPath");
     if (nasUrl) {
-      configureNasStorage(nasUrl, nasPath || '/data');
+      configureNasStorage(nasUrl, nasPath || "/data");
     }
   }, [user, navigate]);
 
@@ -57,13 +74,13 @@ const Layout = () => {
     try {
       const data = await createBackup();
       // Fix TypeScript error by handling the string | Blob correctly
-      if (typeof data === 'string') {
+      if (typeof data === "string") {
         setBackupData(data);
       } else {
         // If it's a Blob, convert it to a string
         const reader = new FileReader();
         reader.onload = () => {
-          if (reader.result && typeof reader.result === 'string') {
+          if (reader.result && typeof reader.result === "string") {
             setBackupData(reader.result);
           }
         };
@@ -74,7 +91,7 @@ const Layout = () => {
       toast({
         title: "Backup Error",
         description: "Failed to create backup",
-        variant: "destructive"
+        variant: "destructive",
       });
     }
   };
@@ -91,21 +108,21 @@ const Layout = () => {
         if (success) {
           toast({
             title: "Restore successful",
-            description: "Your data has been restored successfully."
+            description: "Your data has been restored successfully.",
           });
           setIsRestoreDialogOpen(false);
         } else {
           toast({
             title: "Restore failed",
             description: "Invalid backup data format.",
-            variant: "destructive"
+            variant: "destructive",
           });
         }
       } catch (error) {
         toast({
           title: "Restore Error",
           description: "Failed to restore from backup",
-          variant: "destructive"
+          variant: "destructive",
         });
       }
     }
@@ -116,13 +133,13 @@ const Layout = () => {
       const { lastSaleId, lastPurchaseId } = await resetLastId();
       toast({
         title: "Reset Last IDs",
-        description: `Sales ID: ${lastSaleId}, Purchase ID: ${lastPurchaseId}`
+        description: `Sales ID: ${lastSaleId}, Purchase ID: ${lastPurchaseId}`,
       });
     } catch (error) {
       toast({
         title: "Reset Error",
         description: "Failed to reset IDs",
-        variant: "destructive"
+        variant: "destructive",
       });
     }
   };
@@ -136,7 +153,9 @@ const Layout = () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `kesari-auto-backup-${new Date().toISOString().split("T")[0]}.json`;
+    a.download = `kesari-auto-backup-${
+      new Date().toISOString().split("T")[0]
+    }.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -151,82 +170,87 @@ const Layout = () => {
             <h1 className="text-xl font-semibold">Kesari Auto Center</h1>
             <span className="text-sm text-gray-500">Version 2.0.0</span>
           </div> */}
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-600">User: {user.username}</span>
-            <Button variant="outline" size="sm" onClick={handleLogout}>
-              Logout
-            </Button>
-        <div className="flex mt-2 items-center">
-          <nav className="flex-1">
-            <ul className="flex space-x-4">
-              <li>
-                <Link 
-                  to="/" 
-                  className={`flex items-center px-4 py-2 hover:bg-gray-100 rounded ${location.pathname === '/' ? 'bg-gray-100' : ''}`}
-                >
-                  {/* <img src="/imgs/a042c22e-13d4-4780-bbb5-108d2637b91e.png" alt="Sales" className="w-10 h-8 mr-2" /> */}
-                  <Bike className="w-5 h-5 mr-2" />
-                  <span>Sales</span>
-                </Link>
-              </li>
-              <li>
-                <Link 
-                  to="/purchase" 
-                  className={`flex items-center px-4 py-2 hover:bg-gray-100 rounded ${location.pathname === '/purchase' ? 'bg-gray-100' : ''}`}
-                >
-                  {/* <img src="/imgs/a042c22e-13d4-4780-bbb5-108d2637b91e.png" alt="Purchase" className="w-10 h-8 mr-2" /> */}
-                  <BikeIcon className="w-5 h-5 mr-2" />
-                  <span>Purchase</span>
-                </Link>
-              </li>
-              <li>
-                <Link 
-                  to="/due-list" 
-                  className={`flex items-center px-4 py-2 hover:bg-gray-100 rounded ${location.pathname === '/due-list' ? 'bg-gray-100' : ''}`}
-                >
-                  {/* <img src="/imgs/a042c22e-13d4-4780-bbb5-108d2637b91e.png" alt="Due List" className="w-10 h-8 mr-2" /> */}
-                  <LucideBike className="w-5 h-5 mr-2" />
-                  <span>Due List</span>
-                </Link>
-              </li>
-              <li>
-                <Link to={"/admin"}>
-                  <Button variant="outline" size="sm">Admin Panel</Button>
-                </Link>
-              </li>
-            </ul>
-          </nav>
-          <div>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline">Tools</Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent className="bg-white p-1">
-                <DropdownMenuItem onClick={handleBackup}>
-                  Backup
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleRestoreOpen}>
-                  Restore
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleResetLastId}>
-                  Reset Last ID
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleNasConfig}>
-                  NAS Configuration
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+          <div className="flex items-center gap-2">      
+            <div className="flex mt-2 items-center">
+              <nav className="flex-1">
+                <ul className="flex space-x-4">
+                  <li>
+                    <Link
+                      to="/"
+                      className={`flex items-center px-4 py-2 bg-yellow-600 hover:bg-yellow-400 rounded ${
+                        location.pathname === "/" ? "bg-gray-100" : ""
+                      }`}
+                    >
+                      {/* <img src="/imgs/a042c22e-13d4-4780-bbb5-108d2637b91e.png" alt="Sales" className="w-10 h-8 mr-2" /> */}
+                      <Bike className="w-5 h-5 mr-2" />
+                      <span>Sales</span>
+                    </Link>
+                  </li>
+                  <li>
+                    <Link
+                      to="/purchase"
+                      className={`flex items-center px-4 py-2 bg-blue-700 hover:bg-blue-300 rounded ${
+                        location.pathname === "/purchase" ? "bg-gray-100" : ""
+                      }`}
+                    >
+                      {/* <img src="/imgs/a042c22e-13d4-4780-bbb5-108d2637b91e.png" alt="Purchase" className="w-10 h-8 mr-2" /> */}
+                      <BikeIcon className="w-5 h-5 mr-2" />
+                      <span>Purchase</span>
+                    </Link>
+                  </li>
+                  <li>
+                    <Link
+                      to="/due-list"
+                      className={`flex items-center px-4 py-2 bg-green-700 hover:bg-green-400 rounded ${
+                        location.pathname === "/due-list" ? "bg-gray-100" : ""
+                      }`}
+                    >
+                      {/* <img src="/imgs/a042c22e-13d4-4780-bbb5-108d2637b91e.png" alt="Due List" className="w-10 h-8 mr-2" /> */}
+                      <LucideBike className="w-5 h-5 mr-2" />
+                      <span>Due List</span>
+                    </Link>
+                  </li>
+                </ul>
+              </nav>
+              <div className="ml-4">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline">Tools</Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent className="bg-white p-1">
+                    <DropdownMenuItem onClick={handleBackup}>
+                      Backup
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={handleRestoreOpen}>
+                      Restore
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={handleResetLastId}>
+                      Reset Last ID
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={handleNasConfig}>
+                      NAS Configuration
+                    </DropdownMenuItem>
+                    <DropdownMenuItem>
+                    <KeyBindDialog />
+                    </DropdownMenuItem>
+                    <DropdownMenuItem>
+                      <Link to={"/admin"}>
+                        <Button variant="outline" size="sm">
+                          Admin Panel
+                        </Button>
+                      </Link>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </div>
           </div>
-        </div>
-          </div>
-          <div className="flex items-center space-x-2">
+          {/* <div className="flex items-center space-x-2">
             <KeyBindDialog />
-            
-            <Button
-              variant="outline"
-              onClick={handleLogout}
-              className="text-red-600"
-            >
+          </div> */}
+          <div className="flex items-center space-x-2">
+          <span className="text-xl text-bold text-gray-600">User: {user.username}</span>
+            <Button variant="destructive" size="sm" onClick={handleLogout}>
               Logout
             </Button>
           </div>
@@ -244,7 +268,10 @@ const Layout = () => {
             <DialogTitle>Backup Data</DialogTitle>
           </DialogHeader>
           <div className="my-4">
-            <p className="mb-4">Your backup data is ready. You can copy it or download it as a file.</p>
+            <p className="mb-4">
+              Your backup data is ready. You can copy it or download it as a
+              file.
+            </p>
             <div className="bg-gray-100 p-2 rounded-md max-h-40 overflow-auto">
               <pre className="text-xs">{backupData}</pre>
             </div>
@@ -274,11 +301,16 @@ const Layout = () => {
           </div>
           <DialogFooter>
             <Button onClick={handleRestore}>Restore</Button>
-            <Button variant="outline" onClick={() => setIsRestoreDialogOpen(false)}>Cancel</Button>
+            <Button
+              variant="outline"
+              onClick={() => setIsRestoreDialogOpen(false)}
+            >
+              Cancel
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      
+
       {/* NAS Configuration Dialog */}
       <Dialog open={isNasConfigOpen} onOpenChange={setIsNasConfigOpen}>
         <DialogContent>

@@ -12,7 +12,8 @@ export interface VehicleSale {
   phone: string;
   remark: string;
   model: string;
-  vehicleNo: string;
+  vehicleNo?: string;
+  photoUrl?: string;
   chassis: string;
   price: number;
   transportCost: number;
@@ -29,7 +30,6 @@ export interface VehicleSale {
   witnessContact: string;
   witnessName2: string;
   rcBook: boolean;
-  photoUrl: string;
   installments: {
     date: string;
     amount: number;
@@ -59,6 +59,7 @@ export interface VehiclePurchase {
   photoUrl: string;
   manualId?: string; // Add the manualId optional property
   brokerage: number;
+  witness: string;
 }
 
 export interface DuePayment {

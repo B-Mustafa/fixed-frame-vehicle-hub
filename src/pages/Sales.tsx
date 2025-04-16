@@ -2,104 +2,344 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { useToast } from "@/hooks/use-toast";
-import {
-  exportSalesToExcel,
-  importSalesFromExcel
-} from "@/utils/excelStorage";
+import { toast, useToast } from "@/hooks/use-toast";
+// import { exportSalesToExcel, importSalesFromExcel } from "@/utils/excelStorage";
 import {
   registerKeyBindings,
   unregisterKeyBindings,
   loadKeyBindings,
 } from "@/utils/keyBindings";
-import { format } from "date-fns";
+import { format, parse } from "date-fns";
 import { KeyBind, DEFAULT_KEYBINDS } from "@/components/KeyBindDialog";
-import { Camera, FileDown, FileUp, History, Printer, Search, ZoomIn } from "lucide-react";
-import { addSale, getSales, VehicleSale } from "@/utils/dataStorage";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import ImagePreviewModal from "@/components/ImagePreviewModal";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
+import {
+  Printer,
+  FileDown,
+  FileUp,
+  X,
+  Search,
+  History,
+  Camera,
+  ZoomIn,
+} from "lucide-react";
+import { useSalesData, emptySale } from "@/hooks/useSalesData";
+import * as XLSX from "xlsx";
+import { saveAs } from "file-saver";
+import { VehicleSale } from "@/utils/dataStorage";
+import { Textarea } from "@/components/ui/textarea";
+import { saveToBackup, exportSalesToExcel, importSalesFromExcel } from '@/utils/backupUtils';
+import { vehicleSaleToSupabase } from "@/integrations/supabase/service";
+import { supabase } from "@/integrations/supabase/client";
 
-const emptySale: Omit<VehicleSale, "id"> = {
-  date: format(new Date(), "yyyy-MM-dd"),
-  party: "",
-  address: "",
-  phone: "",
-  model: "",
-  vehicleNo: "",
-  chassis: "",
-  price: 0,
-  transportCost: 0,
-  insurance: 0,
-  finance: 0,
-  repair: 0,
-  penalty: 0,
-  total: 0,
-  dueDate: format(new Date(), "yyyy-MM-dd"),
-  dueAmount: 0,
-  witness: "",
-  witnessAddress: "",
-  witnessContact: "",
-  witnessName2: "",
-  remark: "",
-  photoUrl: "",
-  manualId: "",
-  reminder: "00:00",
-  rcBook: false,
-  installments: Array(18)
-    .fill(0)
-    .map(() => ({
-      date: "",
-      amount: 0,
-      paid: 0,
-      enabled: false,
-    })),
-};
+
+
+interface FileSystemDirectoryHandle {
+  getDirectoryHandle(
+    name: string,
+    options?: { create: boolean }
+  ): Promise<FileSystemDirectoryHandle>;
+  getFileHandle(
+    name: string,
+    options?: { create: boolean }
+  ): Promise<FileSystemFileHandle>;
+  values(): AsyncIterable<FileSystemHandle>;
+}
+
+interface FileSystemFileHandle {
+  createWritable(options?: {
+    keepExistingData: boolean;
+  }): Promise<FileSystemWritableFileStream>;
+}
+
+interface FileSystemWritableFileStream extends WritableStream {
+  write(data: any): Promise<void>;
+  close(): Promise<void>;
+}
+
+declare global {
+  interface Window {
+    showDirectoryPicker(options?: {
+      id?: string;
+      mode?: "read" | "readwrite";
+      startIn?: string;
+    }): Promise<FileSystemDirectoryHandle>;
+  }
+}
+
+// let savedDirectoryHandle: FileSystemDirectoryHandle | null = null;
 
 const SEARCH_HISTORY_KEY = "salesSearchHistory";
 
+const getCurrentDate = () => {
+  const today = new Date();
+  const day = String(today.getDate()).padStart(2, '0');
+  const month = String(today.getMonth() + 1).padStart(2, '0');
+  const year = today.getFullYear();
+  return `${day}/${month}/${year}`;
+};
+
+const formatToDisplayDate = (dateString: string | undefined): string => {
+  if (!dateString) return getCurrentDate();
+
+  // If already in dd/mm/yyyy format, return as-is
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(dateString)) {
+    return dateString;
+  }
+
+  try {
+    // Parse the date string (handles both ISO format and yyyy-mm-dd)
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return getCurrentDate();
+
+    const day = String(date.getDate()).padStart(2, "0");
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const year = date.getFullYear();
+    return `${day}/${month}/${year}`;
+  } catch {
+    return getCurrentDate();
+  }
+};
+
+const formatToInputDate = (dateString: string | undefined): string => {
+  if (!dateString) return new Date().toISOString().split('T')[0];
+
+  // If already in yyyy-mm-dd format, return as-is
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
+    return dateString;
+  }
+
+  // Convert from dd/mm/yyyy to yyyy-mm-dd
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(dateString)) {
+    const [day, month, year] = dateString.split("/");
+    return `${year}-${month}-${day}`;
+  }
+
+  // Fallback to current date
+  return new Date().toISOString().split('T')[0];
+};
+
+// const formatToInputDate = (dateString: string | undefined): string => {
+//   if (!dateString) return new Date().toISOString().split('T')[0];
+
+//   // Convert from dd/mm/yyyy to yyyy-mm-dd for date inputs
+//   if (/^\d{2}\/\d{2}\/\d{4}$/.test(dateString)) {
+//     const [day, month, year] = dateString.split("/");
+//     return `${year}-${month}-${day}`;
+//   }
+
+//   // Handle if it's already in yyyy-mm-dd format
+//   if (/^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
+//     return dateString;
+//   }
+
+//   return new Date().toISOString().split('T')[0];
+// };
+
+const handleBackup = async (
+  data: any,
+  fileName: string,
+  type: "excel" | "image"
+) => {
+  try {
+    if (type === "excel") {
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.json_to_sheet(Array.isArray(data) ? data : [data]);
+      XLSX.utils.book_append_sheet(wb, ws, "SalesData");
+
+      const excelBuffer = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+      const blob = new Blob([excelBuffer], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+
+      saveAs(blob, `${fileName}.xlsx`);
+    } else if (type === "image") {
+      const blob = await fetch(data).then((res) => res.blob());
+      saveAs(blob, fileName);
+    }
+
+    toast({
+      title: "Backup Created",
+      description: `${fileName} has been saved to your Downloads folder`,
+    });
+  } catch (error) {
+    console.error("Error creating backup:", error);
+    toast({
+      title: "Backup Failed",
+      description: "Could not create backup file",
+      variant: "destructive",
+    });
+  }
+};
+
+
 const Sales = () => {
-  const [currentSale, setCurrentSale] = useState<
-    VehicleSale | (Omit<VehicleSale, "id"> & { id?: number })
-  >(emptySale);
-  const [sales, setSales] = useState<VehicleSale[]>([]);
-  const [currentIndex, setCurrentIndex] = useState(-1);
-  const { toast } = useToast();
-  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const {
+    currentSale,
+    setCurrentSale,
+    sales,
+    currentIndex,
+    setCurrentIndex,
+    photoPreview,
+    setPhotoPreview,
+    useSupabase,
+    handleSave: originalHandleSave,
+    handleNew,
+    handleDelete: originalHandleDelete,
+    navigateFirst,
+    navigatePrev,
+    navigateNext,
+    navigateLast,
+    toggleSupabase,
+    fetchSales,
+  } = useSalesData();
+
   const [showPhotoModal, setShowPhotoModal] = useState(false);
   const [labelColor, setLabelColor] = useState("#e6f7ff");
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchHistory, setSearchHistory] = useState<{ query: string; timestamp: number }[]>([]);
+  const [searchHistory, setSearchHistory] = useState<
+    { query: string; timestamp: number }[]
+  >([]);
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [showSearchResults, setShowSearchResults] = useState(false);
-  
+
   const printRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
+  const { toast } = useToast();
 
+  // Initialize with current date for new records
   useEffect(() => {
-    const fetchSales = async () => {
+    if (!currentSale.date) {
+      setCurrentSale(prev => ({
+        ...prev,
+        date: getCurrentDate(),
+        dueDate: getCurrentDate(),
+        installments: prev.installments.map(inst => ({
+          ...inst,
+          date: inst.enabled ? getCurrentDate() : inst.date
+        }))
+      }));
+    }
+  }, [currentSale.id, setCurrentSale]);
+
+  
+  
+
+  const handleSave = async () => {
+    try {
+      const savedSale = await originalHandleSave();
+      if (!savedSale) return;
+  
+      // Save backup silently
+      await saveToBackup(
+        savedSale,
+        `Sales_${savedSale.vehicleNo || savedSale.id || "new"}`,
+        "excel"
+      );
+  
+      if (savedSale.photoUrl) {
+        await saveToBackup(
+          savedSale.photoUrl,
+          `Sales_${savedSale.vehicleNo || savedSale.id || "new"}`,
+          "image"
+        );
+      }
+  
+      return savedSale;
+    } catch (error) {
+      console.error("Save failed:", error);
+      throw error;
+    }
+  };
+  
+  
+
+  const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
       try {
-        const loadedSales = await getSales();
-        setSales(loadedSales);
-        if (loadedSales.length > 0) {
-          const firstSale = loadedSales[0];
-          setCurrentSale({
-            ...firstSale,
-            manualId: firstSale.manualId || firstSale.id?.toString() || "",
-            installments: firstSale.installments || emptySale.installments,
+        let photoUrl;
+
+        if (useSupabase) {
+          const { uploadVehicleImage } = await import(
+            "@/integrations/supabase/service"
+          );
+          photoUrl = await uploadVehicleImage(file);
+        } else {
+          const reader = new FileReader();
+          photoUrl = await new Promise<string>((resolve) => {
+            reader.onload = (event) => {
+              resolve(event.target?.result as string);
+            };
+            reader.readAsDataURL(file);
           });
-          setCurrentIndex(0);
-          setPhotoPreview(firstSale.photoUrl || null);
         }
+
+        setPhotoPreview(photoUrl);
+        setCurrentSale({
+          ...currentSale,
+          photoUrl,
+        });
+
+        try {
+          const extension = file.name.split(".").pop() || "jpg";
+          await saveToBackup(
+            photoUrl,
+            `Sales_${
+              currentSale.vehicleNo || currentSale.id || "NEW"
+            }.${extension}`,
+            "image"
+          );
+        } catch (backupError) {
+          console.error("Local photo backup failed:", backupError);
+        }
+
+        toast({
+          title: "Success",
+          description: "Photo uploaded successfully",
+        });
       } catch (error) {
-        console.error("Error loading sales:", error);
+        console.error("Error uploading photo:", error);
         toast({
           title: "Error",
-          description: "Failed to load sales",
+          description: "Failed to upload photo",
           variant: "destructive",
         });
       }
+    }
+  };
+
+    const handleDelete = async () => {
+      if (!currentSale.id) return;
+    
+      try {
+        // Save backup silently without popups
+        await saveToBackup(
+          currentSale,
+          `Sales_${currentSale.vehicleNo || currentSale.id}_DELETED`,
+          "excel"
+        );
+        if (currentSale.photoUrl) {
+          await saveToBackup(
+            currentSale.photoUrl,
+            `Sales_${currentSale.vehicleNo || currentSale.id}_DELETED`,
+            "image"
+          );
+        }
+    
+        await originalHandleDelete();
+      } catch (error) {
+        console.error("Error deleting sale:", error);
+      }
     };
 
+
+  useEffect(() => {
     const loadSearchHistory = () => {
       const savedHistory = localStorage.getItem(SEARCH_HISTORY_KEY);
       if (savedHistory) {
@@ -123,67 +363,83 @@ const Sales = () => {
       }
     };
 
-    fetchSales();
     loadSearchHistory();
-  }, [toast]);
+  }, []);
 
-  // Fixed calculation effect - added proper dependencies
-  useEffect(() => {
-    if (currentSale) {
-      const total =
-        (currentSale.price || 0) +
-        (currentSale.transportCost || 0) +
-        (currentSale.insurance || 0) +
-        (currentSale.finance || 0) +
-        (currentSale.repair || 0) +
-        (currentSale.penalty || 0);
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value, type } = e.target;
 
-      const totalInstallments = currentSale.installments
-        .filter((inst) => inst.enabled)
-        .reduce((sum, inst) => sum + (inst.amount || 0), 0);
-
-      const dueAmount = Math.max(0, total - totalInstallments);
-
-      setCurrentSale((prev) => ({
+  if (name === 'date' || name === 'dueDate') {
+    // Convert from yyyy-mm-dd (input format) to dd/mm/yyyy (storage format)
+    const [year, month, day] = value.split('-');
+    const formattedDate = `${day}/${month}/${year}`;
+    
+    setCurrentSale(prev => ({
+      ...prev,
+      [name]: formattedDate
+    }));
+    } else if (type === "number") {
+      setCurrentSale(prev => ({
         ...prev,
-        total,
-        dueAmount,
+        [name]: value === "" ? 0 : parseFloat(value),
+      }));
+    } else if (name === "labelColor") {
+      setLabelColor(value);
+    } else if (type === "checkbox") {
+      setCurrentSale(prev => ({
+        ...prev,
+        [name]: (e.target as HTMLInputElement).checked,
+      }));
+    } else {
+      setCurrentSale(prev => ({
+        ...prev,
+        [name]: value,
       }));
     }
-  }, [
-    currentSale.price,
-    currentSale.transportCost,
-    currentSale.insurance,
-    currentSale.finance,
-    currentSale.repair,
-    currentSale.penalty,
-    currentSale.installments,
-  ]);
+  };
+  
+  const handleTextArea = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const { name, value, type } = e.target;
 
+    if (type === "number") {
+      setCurrentSale((prev: any) => ({
+        ...prev,
+        [name]: value === "" ? 0 : parseFloat(value),
+      }));
+    } else if (name === "labelColor") {
+      setLabelColor(value);
+    } else if (type === "checkbox") {
+      setCurrentSale((prev: any) => ({
+        ...prev,
+        [name]: (e.target as HTMLInputElement).checked,
+      }));
+    } else {
+      setCurrentSale((prev: any) => ({
+        ...prev,
+        [name]: value,
+      }));
+    }
+  };
+
+  // Update the installment date handling
   const handleInstallmentChange = (
     index: number,
     field: string,
     value: any
   ) => {
     const updatedInstallments = [...currentSale.installments];
-
+  
     if (field === "enabled") {
-      if (value && !updatedInstallments[index].date) {
-        updatedInstallments[index] = {
-          ...updatedInstallments[index],
-          date: new Date().toISOString().split("T")[0],
-          enabled: value,
-        };
-      } else {
-        updatedInstallments[index] = {
-          ...updatedInstallments[index],
-          enabled: value,
-        };
-      }
+      updatedInstallments[index] = {
+        ...updatedInstallments[index],
+        date: value ? getCurrentDate() : "",
+        amount: value ? (updatedInstallments[index].amount || 0) : 0,
+        enabled: value,
+      };
     } else if (field === "date") {
       updatedInstallments[index] = {
         ...updatedInstallments[index],
-        date: value,
+        date: formatToDisplayDate(value),
       };
     } else if (field === "amount") {
       updatedInstallments[index] = {
@@ -191,7 +447,7 @@ const Sales = () => {
         amount: value === "" ? 0 : parseFloat(value),
       };
     }
-
+  
     setCurrentSale({
       ...currentSale,
       installments: updatedInstallments,
@@ -243,14 +499,20 @@ const Sales = () => {
                 <span class="print-label">Model:</span> ${currentSale.model}
               </div>
               <div class="print-field">
-                <span class="print-label">Vehicle No:</span> ${currentSale.vehicleNo}
+                <span class="print-label">Vehicle No:</span> ${
+                  currentSale.vehicleNo
+                }
               </div>
               <div class="print-field">
                 <span class="print-label">Chassis:</span> ${currentSale.chassis}
               </div>
             </div>
             <div>
-              ${photoPreview ? `<img src="${photoPreview}" alt="Vehicle" class="photo" />` : ""}
+              ${
+                photoPreview
+                  ? `<img src="${photoPreview}" alt="Vehicle" class="photo" />`
+                  : ""
+              }
             </div>
           </div>
           
@@ -258,7 +520,9 @@ const Sales = () => {
             <span class="print-label">Total Amount:</span> ${currentSale.total}
           </div>
           <div class="print-field">
-            <span class="print-label">Due Amount:</span> ${currentSale.dueAmount}
+            <span class="print-label">Due Amount:</span> ${
+              currentSale.dueAmount
+            }
           </div>
           
           <h3>Payment Details</h3>
@@ -272,12 +536,14 @@ const Sales = () => {
             <tbody>
               ${currentSale.installments
                 .filter((inst) => inst.enabled)
-                .map((inst) => `
+                .map(
+                  (inst) => `
                   <tr>
                     <td>${inst.date}</td>
                     <td>${inst.amount}</td>
                   </tr>
-                `)
+                `
+                )
                 .join("")}
             </tbody>
           </table>
@@ -286,10 +552,14 @@ const Sales = () => {
             <span class="print-label">Witness:</span> ${currentSale.witness}
           </div>
           <div class="print-field">
-            <span class="print-label">Witness Address:</span> ${currentSale.witnessAddress}
+            <span class="print-label">Witness Address:</span> ${
+              currentSale.witnessAddress
+            }
           </div>
           <div class="print-field">
-            <span class="print-label">Witness Contact:</span> ${currentSale.witnessContact}
+            <span class="print-label">Witness Contact:</span> ${
+              currentSale.witnessContact
+            }
           </div>
         </body>
       </html>
@@ -316,353 +586,299 @@ const Sales = () => {
     photoInputRef.current?.click();
   };
 
-  const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    const useSupabase = true; 
-    if (file) {
-      try {
-        let photoUrl;
-        
-        if (useSupabase) {
-          // Upload to Supabase Storage
-          const { uploadVehicleImage } = await import("@/integrations/supabase/service");
-          photoUrl = await uploadVehicleImage(file);
-        } else {
-          // Use local storage (base64)
-          const reader = new FileReader();
-          photoUrl = await new Promise<string>((resolve) => {
-            reader.onload = (event) => {
-              resolve(event.target?.result as string);
-            };
-            reader.readAsDataURL(file);
-          });
-        }
-        
-        setPhotoPreview(photoUrl);
-        setCurrentSale({
-          ...currentSale,
-          photoUrl,
-        });
-        
-        toast({
-          title: "Success",
-          description: "Photo uploaded successfully",
-        });
-      } catch (error) {
-        console.error("Error uploading photo:", error);
-        toast({
-          title: "Error",
-          description: "Failed to upload photo",
-          variant: "destructive",
-        });
-      }
-    }
-  };
-
   const handleExportToExcel = () => {
     try {
       exportSalesToExcel(sales);
-      toast({
-        title: "Export Successful",
-        description: "Sales data has been exported to Excel",
-      });
     } catch (error) {
       console.error("Error exporting to Excel:", error);
-      toast({
-        title: "Export Failed",
-        description: "An error occurred while exporting data to Excel",
-        variant: "destructive",
-      });
     }
   };
-
+  
   const handleImportFromFile = () => {
     fileInputRef.current?.click();
   };
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
     if (!file) return;
-
+  
     try {
-      const importedSales = await importSalesFromExcel(file);
-
-      if (window.confirm(`Import ${importedSales.length} sale records?`)) {
-        let successCount = 0;
-        let failCount = 0;
-
-        for (const sale of importedSales) {
-          try {
-            await addSale(sale);
-            successCount++;
-          } catch (error) {
-            console.error("Error importing sale:", error);
-            failCount++;
-          }
-        }
-
-        // Refresh the sales data after import
-        fetchSales();
-
-        toast({
-          title: "Import Complete",
-          description: `Successfully imported ${successCount} records. Failed: ${failCount}`,
-        });
-      }
+      // Show loading state
+      toast({
+        title: "Importing...",
+        description: "Processing your file",
+      });
+  
+      // 1. Read the file
+      const fileData = await readFile(file);
+      
+      // 2. Parse the data
+      const salesData = parseFileData(fileData, file.name);
+      
+      // 3. Validate data
+      const validatedSales = validateSalesData(salesData);
+      
+      // 4. Upload to Supabase
+      const { successCount, errorCount } = await uploadToSupabase(validatedSales);
+      
+      // Show results
+      toast({
+        title: "Import Complete",
+        description: `Successfully imported ${successCount} records. ${errorCount > 0 ? `${errorCount} failed.` : ''}`,
+        variant: successCount > 0 ? "default" : "destructive",
+      });
+  
+      // Refresh data
+      await fetchSales();
+  
     } catch (error) {
-      console.error("Error parsing import file:", error);
+      console.error("Import failed:", error);
       toast({
         title: "Import Failed",
-        description: "Failed to parse the import file. Please check the file format.",
+        description: error instanceof Error ? error.message : "Failed to import data",
         variant: "destructive",
       });
-    }
-
-    e.target.value = "";
-  };
-
-  const navigateFirst = () => {
-    if (sales.length > 0) {
-      const firstSale = sales[0];
-      setCurrentSale({
-        ...firstSale,
-        manualId: firstSale.manualId || firstSale.id?.toString() || "",
-      });
-      setCurrentIndex(0);
-      setPhotoPreview(firstSale.photoUrl || null);
+    } finally {
+      // Reset file input
+      if (event.target) event.target.value = "";
     }
   };
-
-  const navigatePrev = () => {
-    if (currentIndex > 0) {
-      const prevSale = sales[currentIndex - 1];
-      setCurrentSale({
-        ...prevSale,
-        manualId: prevSale.manualId || prevSale.id?.toString() || "",
-      });
-      setCurrentIndex(currentIndex - 1);
-      setPhotoPreview(prevSale.photoUrl || null);
-    }
-  };
-
-  const navigateNext = () => {
-    if (currentIndex < sales.length - 1) {
-      const nextSale = sales[currentIndex + 1];
-      setCurrentSale({
-        ...nextSale,
-        manualId: nextSale.manualId || nextSale.id?.toString() || "",
-      });
-      setCurrentIndex(currentIndex + 1);
-      setPhotoPreview(nextSale.photoUrl || null);
-    }
-  };
-
-  const navigateLast = () => {
-    if (sales.length > 0) {
-      const lastSale = sales[sales.length - 1];
-      setCurrentSale({
-        ...lastSale,
-        manualId: lastSale.manualId || lastSale.id?.toString() || "",
-      });
-      setCurrentIndex(sales.length - 1);
-      setPhotoPreview(lastSale.photoUrl || null);
-    }
-  };
-
-  // Handler functions
-const handleSearch = useCallback(() => {
-  if (!searchQuery.trim()) {
-    setSearchResults([]);
-    return;
-  }
   
-  const results = sales.filter(sale => 
-    sale.party.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    sale.vehicleNo.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (sale.phone && sale.phone.includes(searchQuery))
-  );
-  
-  setSearchResults(results);
-  setShowSearchResults(true);
-  
-  // Update search history
-  const newHistory = [
-    { query: searchQuery, timestamp: Date.now() },
-    ...searchHistory.filter(item => item.query !== searchQuery)
-  ].slice(0, 10);
-  
-  setSearchHistory(newHistory);
-  localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(newHistory));
-}, [searchQuery, sales, searchHistory]);
-
-const handleClearSearch = () => {
-  setSearchQuery("");
-  setSearchResults([]);
-  setShowSearchResults(false);
-};
-
-const handleNew = () => {
-  setCurrentSale(emptySale);
-  setCurrentIndex(-1);
-  setPhotoPreview(null);
-};
-
-const handleSave = async () => {
-  try {
-    const savedSale = await addSale(currentSale as Omit<VehicleSale, "id">);
-    const updatedSales = [...sales];
-    if (currentIndex === -1) {
-      updatedSales.unshift(savedSale);
-    } else {
-      updatedSales[currentIndex] = savedSale;
-    }
-    setSales(updatedSales);
-    toast({
-      title: "Success",
-      description: "Sale saved successfully",
+  // Helper functions
+  const readFile = (file: File): Promise<ArrayBuffer> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target?.result as ArrayBuffer);
+      reader.onabort = () => reject(new Error("File reading was aborted"));
+      reader.onerror = () => reject(new Error("Failed to read file"));
+      reader.readAsArrayBuffer(file);
     });
-  } catch (error) {
-    toast({
-      title: "Error",
-      description: "Failed to save sale",
-      variant: "destructive",
-    });
-  }
-};
-
-const handleDelete = async () => {
-  if (!currentSale.id) return;
+  };
   
-  if (window.confirm("Are you sure you want to delete this sale?")) {
+  const parseFileData = (data: ArrayBuffer, fileName: string): any[] => {
     try {
-      // Implement delete logic
-      const updatedSales = sales.filter(sale => sale.id !== currentSale.id);
-      setSales(updatedSales);
-      toast({
-        title: "Success",
-        description: "Sale deleted successfully",
-      });
+      if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+        const workbook = XLSX.read(data);
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+        return XLSX.utils.sheet_to_json(firstSheet);
+      } else if (fileName.endsWith('.csv')) {
+        const text = new TextDecoder().decode(data);
+        const lines = text.split('\n');
+        const headers = lines[0].split(',').map(h => h.trim());
+        return lines.slice(1).map(line => {
+          const values = line.split(',');
+          return headers.reduce((obj, header, i) => {
+            obj[header] = values[i]?.trim();
+            return obj;
+          }, {} as Record<string, string>);
+        });
+      }
+      throw new Error('Unsupported file format');
     } catch (error) {
+      throw new Error('Failed to parse file: ' + (error instanceof Error ? error.message : String(error)));
+    }
+  };
+  
+  const validateSalesData = (data: any[]): VehicleSale[] => {
+    return data.map(item => ({
+      id: item.id || 0, // 0 will trigger auto-increment in Supabase
+      date: item.date || getCurrentDate(),
+      party: item.party || '',
+      address: item.address || '',
+      phone: item.phone || '',
+      model: item.model || '',
+      vehicleNo: item.vehicleNo || item.vehicle_no || '',
+      chassis: item.chassis || '',
+      price: Number(item.price) || 0,
+      transportCost: Number(item.transportCost) || Number(item.transport_cost) || 0,
+      insurance: Number(item.insurance) || 0,
+      finance: Number(item.finance) || 0,
+      repair: Number(item.repair) || 0,
+      penalty: Number(item.penalty) || 0,
+      total: Number(item.total) || 0,
+      dueAmount: Number(item.dueAmount) || Number(item.due_amount) || 0,
+      dueDate: item.dueDate || item.due_date || getCurrentDate(),
+      witness: item.witness || '',
+      witnessAddress: item.witnessAddress || item.witness_address || '',
+      witnessContact: item.witnessContact || item.witness_contact || '',
+      witnessName2: item.witnessName2 || item.witness_name2 || '',
+      remark: item.remark || '',
+      photoUrl: item.photoUrl || item.photo_url || '',
+      manualId: item.manualId || item.manual_id || '',
+      installments: Array(18).fill(null).map((_, i) => ({
+        date: item[`installment_${i}_date`] || '',
+        amount: Number(item[`installment_${i}_amount`]) || 0,
+        paid: Number(item[`installment_${i}_paid`]) || 0,
+        enabled: Boolean(item[`installment_${i}_enabled`]) || false
+      }))
+    }));
+  };
+  
+  const uploadToSupabase = async (sales: VehicleSale[]): Promise<{successCount: number, errorCount: number}> => {
+    const BATCH_SIZE = 20; // Smaller batches for better reliability
+    let successCount = 0;
+    let errorCount = 0;
+  
+    for (let i = 0; i < sales.length; i += BATCH_SIZE) {
+      const batch = sales.slice(i, i + BATCH_SIZE);
+      
+      try {
+        // Transform and upload sales
+        const { data, error } = await supabase
+          .from('vehicle_sales')
+          .insert(batch.map(sale => vehicleSaleToSupabase(sale)))
+          .select();
+  
+        if (error) throw error;
+        
+        const insertedSales = data || [];
+        successCount += insertedSales.length;
+  
+        // Upload installments for successful sales
+        for (const sale of insertedSales) {
+          const originalSale = batch.find(s => 
+            s.vehicleNo === sale.vehicle_no || 
+            s.model === sale.model && s.party === sale.party
+          );
+          
+          if (originalSale) {
+            const enabledInstallments = originalSale.installments.filter(i => i.enabled);
+            if (enabledInstallments.length > 0) {
+              await supabase.from('installments').insert(
+                enabledInstallments.map(inst => ({
+                  sale_id: sale.id,
+                  date: inst.date,
+                  amount: inst.amount,
+                  paid: inst.paid,
+                  enabled: true
+                }))
+              );
+            }
+          }
+        }
+      } catch (error) {
+        console.error(`Batch ${i/BATCH_SIZE + 1} failed:`, error);
+        errorCount += batch.length;
+        // Continue with next batch even if one fails
+      }
+    }
+  
+    return { successCount, errorCount };
+  };
+  const handleSearch = () => {
+    if (!searchQuery.trim()) return;
+
+    addToSearchHistory(searchQuery);
+
+    const searchLower = searchQuery.toLowerCase();
+    const results = sales.filter(
+      (sale) =>
+        sale.party.toLowerCase().includes(searchLower) ||
+        sale.vehicleNo.toLowerCase().includes(searchLower) ||
+        (sale.phone && sale.phone?.includes(searchLower)) ||
+        sale.model.toLowerCase().includes(searchLower) ||
+        (sale.chassis && sale.chassis?.toLowerCase().includes(searchLower)) ||
+        sale.address.toLowerCase().includes(searchLower) ||
+        (sale.remark && sale.remark?.toLowerCase().includes(searchLower))
+    );
+
+    setSearchResults(results);
+    setShowSearchResults(results.length > 0);
+
+    if (results.length > 0) {
+      const foundSale = results[0];
+      const saleIndex = sales.findIndex((s) => s.id === foundSale.id);
+      setCurrentSale(foundSale);
+      setCurrentIndex(saleIndex);
+      setPhotoPreview(foundSale.photoUrl || null);
       toast({
-        title: "Error",
-        description: "Failed to delete sale",
-        variant: "destructive",
+        title: "Search Results",
+        description: `Found ${results.length} matching records`,
+      });
+    } else {
+      toast({
+        title: "No Results",
+        description: "No matching records found",
       });
     }
-  }
-};
+  };
 
-const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-  const { name, value, type } = e.target;
-  setCurrentSale(prev => ({
-    ...prev,
-    [name]: type === 'number' ? parseFloat(value) || 0 : value
-  }));
-};
+  const addToSearchHistory = (query: string) => {
+    if (!query.trim()) return;
 
-const handleViewPhoto = () => {
-  if (photoPreview) {
-    setShowPhotoModal(true);
-  }
-};
+    const newItem = { query, timestamp: Date.now() };
+    const existingIndex = searchHistory.findIndex(
+      (item) => item.query.toLowerCase() === query.toLowerCase()
+    );
 
-const handleKeyBindsChange = useCallback((bindings: KeyBind[]) => {
-  unregisterKeyBindings();
-  registerKeyBindings(
-    bindings.map((bind) => ({
-      ...bind,
-      handler: () => {
-        switch (bind.id) {
-          case "search": handleSearch(); break;
-          case "new": handleNew(); break;
-          case "save": handleSave(); break;
-          case "delete": handleDelete(); break;
-          case "first": navigateFirst(); break;
-          case "last": navigateLast(); break;
-          case "prev": navigatePrev(); break;
-          case "next": navigateNext(); break;
-          case "print": handlePrint(); break;
-          case "export": handleExportToExcel(); break;
-        }
-      },
-    }))
-  );
-}, [handleSearch, handleNew, handleSave, handleDelete, 
-    navigateFirst, navigateLast, navigatePrev, navigateNext]);
+    let updatedHistory;
+    if (existingIndex >= 0) {
+      updatedHistory = [...searchHistory];
+      updatedHistory[existingIndex] = newItem;
+    } else {
+      updatedHistory = [newItem, ...searchHistory];
+    }
 
-  // Initialize keybindings
+    if (updatedHistory.length > 20) {
+      updatedHistory = updatedHistory.slice(0, 20);
+    }
+
+    setSearchHistory(updatedHistory);
+    localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(updatedHistory));
+  };
+
+  const handleClearSearch = () => {
+    setSearchQuery("");
+    setSearchResults([]);
+    setShowSearchResults(false);
+  };
+
+  const handleViewPhoto = () => {
+    if (photoPreview) {
+      setShowPhotoModal(true);
+    }
+  };
+
   useEffect(() => {
     const savedBinds = loadKeyBindings();
     const bindingsToUse = savedBinds || DEFAULT_KEYBINDS;
-  
+
+    const handlers = {
+      search: () =>
+        document.querySelector('input[placeholder*="Search"]')?.focus(),
+      new: handleNew,
+      save: handleSave,
+      delete: handleDelete,
+      first: navigateFirst,
+      last: navigateLast,
+      prev: navigatePrev,
+      next: navigateNext,
+      print: handlePrint,
+      export: handleExportToExcel,
+    };
+
     registerKeyBindings(
       bindingsToUse.map((bind) => ({
         ...bind,
-        handler: () => {
-          switch (bind.id) {
-            case "search": handleSearch(); break;
-            case "new": handleNew(); break;
-            case "save": handleSave(); break;
-            case "delete": handleDelete(); break;
-            case "first": navigateFirst(); break;
-            case "last": navigateLast(); break;
-            case "prev": navigatePrev(); break;
-            case "next": navigateNext(); break;
-            case "print": handlePrint(); break;
-            case "export": handleExportToExcel(); break;
-          }
-        },
+        handler: () => handlers[bind.id as keyof typeof handlers](),
       }))
     );
-  
-    return () => {
-      unregisterKeyBindings();
-    };
-  }, [handleSearch, handleNew, handleSave, handleDelete]);
 
-  // Update your useEffect for keybindings initialization
-  useEffect(() => {
-    const initialize = async () => {
-      try {
-        // Load sales data
-        const loadedSales = await getSales();
-        setSales(loadedSales);
-        if (loadedSales.length > 0) {
-          const firstSale = loadedSales[0];
-          setCurrentSale({
-            ...firstSale,
-            manualId: firstSale.manualId || firstSale.id?.toString() || "",
-            installments: firstSale.installments || emptySale.installments,
-          });
-          setCurrentIndex(0);
-          setPhotoPreview(firstSale.photoUrl || null);
-        }
+    return () => unregisterKeyBindings();
+  }, [
+    handleDelete,
+    handleExportToExcel,
+    handleNew,
+    handlePrint,
+    handleSave,
+    navigateFirst,
+    navigateLast,
+    navigateNext,
+    navigatePrev,
+  ]);
 
-        // Load keybindings
-        const savedBinds = loadKeyBindings();
-        const bindingsToUse = savedBinds || DEFAULT_KEYBINDS;
-
-        // Register keybindings with handlers
-        handleKeyBindsChange(bindingsToUse);
-      } catch (error) {
-        console.error("Error initializing:", error);
-        toast({
-          title: "Error",
-          description: "Failed to initialize data",
-          variant: "destructive",
-        });
-      }
-    };
-
-    initialize();
-    initialize();
-
-    return () => {
-      unregisterKeyBindings();
-    };
-  }, []);
   return (
-    <div className="h-full p-4 bg-[#0080FF] overflow-auto">
+    <div className="h-full p-4 bg-[#0080FF] overflow-y-hidden font-bold text-xl special-gothic-condensed-one-regular">
       <div className="flex flex-wrap items-center justify-between gap-2 sticky top-0 z-10">
         <div className="flex items-center gap-2 flex-wrap">
           <Button
@@ -758,7 +974,7 @@ const handleKeyBindsChange = useCallback((bindings: KeyBind[]) => {
                   value={labelColor}
                   name="labelColor"
                   onChange={handleInputChange}
-                  className="h-8 w-full"
+                  className="h-8 text-2xl w-full"
                 />
               </div>
             </PopoverContent>
@@ -914,18 +1130,15 @@ const handleKeyBindsChange = useCallback((bindings: KeyBind[]) => {
       </div>
 
       <div
-        className="grid grid-cols-1 md:grid-cols-4 gap-4 overflow-y-auto"
+        className="grid grid-cols-1 md:grid-cols-4 gap-4 overflow-y-hidden"
         ref={printRef}
         style={{ maxHeight: "calc(100vh - 140px)" }}
       >
-        <div className="col-span-2 p-4  overflow-y-auto">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="col-span-2 p-4  overflow-y-hidden">
+          <div className="grid grid-cols-2 w-[140%] gap-4">
             {/* Basic Info Column */}
             <div>
               <div className="mb-4">
-                {/* <h3 className="mb-2" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>
-                  Transaction Details
-                </h3> */}
                 <div className="space-y-2">
                   <div className="flex">
                     <label
@@ -944,7 +1157,7 @@ const handleKeyBindsChange = useCallback((bindings: KeyBind[]) => {
                         currentSale.manualId || currentSale.id?.toString() || ""
                       }
                       onChange={handleInputChange}
-                      className="flex-1"
+                      className="flex-1 text-2xl"
                     />
                   </div>
                   <div className="flex">
@@ -961,9 +1174,17 @@ const handleKeyBindsChange = useCallback((bindings: KeyBind[]) => {
                     <Input
                       type="date"
                       name="date"
-                      value={currentSale.date}
-                      onChange={handleInputChange}
-                      className="flex-1"
+                      value={formatToInputDate(currentSale.date)}
+                      onChange={(e) => {
+                        const formattedDate = formatToDisplayDate(
+                          e.target.value
+                        );
+                        setCurrentSale((prev) => ({
+                          ...prev,
+                          date: formattedDate,
+                        }));
+                      }}
+                      className="flex-1 text-2xl"
                     />
                   </div>
                 </div>
@@ -996,12 +1217,12 @@ const handleKeyBindsChange = useCallback((bindings: KeyBind[]) => {
                       name="party"
                       value={currentSale.party}
                       onChange={handleInputChange}
-                      className="flex-1"
+                      className="flex-1 text-2xl"
                     />
                   </div>
                   <div className="flex">
                     <label
-                      className="w-20"
+                      className="w-20 flex justify-center items-center"
                       style={{
                         backgroundColor: labelColor,
                         padding: "0px 4px",
@@ -1010,11 +1231,11 @@ const handleKeyBindsChange = useCallback((bindings: KeyBind[]) => {
                     >
                       Add.
                     </label>
-                    <Input
+                    <Textarea
                       name="address"
                       value={currentSale.address}
-                      onChange={handleInputChange}
-                      className="flex-1"
+                      onChange={handleTextArea}
+                      className="flex-1 text-2xl"
                     />
                   </div>
                   <div className="flex">
@@ -1032,23 +1253,13 @@ const handleKeyBindsChange = useCallback((bindings: KeyBind[]) => {
                       name="phone"
                       value={currentSale.phone}
                       onChange={handleInputChange}
-                      className="flex-1"
+                      className="flex-1 text-2xl"
                     />
                   </div>
                 </div>
               </div>
 
               <div className="mb-4">
-                <h3
-                  className="mb-2"
-                  style={{
-                    backgroundColor: labelColor,
-                    padding: "0px 4px",
-                    borderRadius: "4px",
-                  }}
-                >
-                  Vehicle Details
-                </h3>
                 <div className="space-y-2">
                   <div className="flex">
                     <label
@@ -1065,25 +1276,25 @@ const handleKeyBindsChange = useCallback((bindings: KeyBind[]) => {
                       name="model"
                       value={currentSale.model}
                       onChange={handleInputChange}
-                      className="flex-1"
+                      className="flex-1 text-2xl"
                     />
                   </div>
                   <div className="flex">
                     <label
-                      className="w-20"
+                      className="w-24"
                       style={{
                         backgroundColor: labelColor,
                         padding: "0px 4px",
                         borderRadius: "4px",
                       }}
                     >
-                      Veh. No
+                      Veh No
                     </label>
                     <Input
                       name="vehicleNo"
                       value={currentSale.vehicleNo}
                       onChange={handleInputChange}
-                      className="flex-1"
+                      className="flex-1 text-2xl"
                     />
                   </div>
                   <div className="flex">
@@ -1101,7 +1312,7 @@ const handleKeyBindsChange = useCallback((bindings: KeyBind[]) => {
                       name="chassis"
                       value={currentSale.chassis}
                       onChange={handleInputChange}
-                      className="flex-1"
+                      className="flex-1 text-2xl"
                     />
                   </div>
                 </div>
@@ -1109,11 +1320,8 @@ const handleKeyBindsChange = useCallback((bindings: KeyBind[]) => {
             </div>
 
             {/* Cost Details Column */}
-            <div>
+            <div className="w-[45%] flex flex-col justify-end place-items-start">
               <div className="mb-4">
-                {/* <h3 className="mb-2" style={{ backgroundColor: labelColor, padding: '4px 8px', borderRadius: '4px' }}>
-                  Cost Details
-                </h3> */}
                 <div className="space-y-2">
                   <div className="flex">
                     <label
@@ -1131,7 +1339,7 @@ const handleKeyBindsChange = useCallback((bindings: KeyBind[]) => {
                       name="price"
                       value={currentSale.price || ""}
                       onChange={handleInputChange}
-                      className="flex-1"
+                      className="flex-1 text-2xl"
                     />
                   </div>
                   <div className="flex">
@@ -1150,7 +1358,7 @@ const handleKeyBindsChange = useCallback((bindings: KeyBind[]) => {
                       name="transportCost"
                       value={currentSale.transportCost || ""}
                       onChange={handleInputChange}
-                      className="flex-1"
+                      className="flex-1 text-2xl"
                     />
                   </div>
                   <div className="flex">
@@ -1169,7 +1377,7 @@ const handleKeyBindsChange = useCallback((bindings: KeyBind[]) => {
                       name="insurance"
                       value={currentSale.insurance || ""}
                       onChange={handleInputChange}
-                      className="flex-1"
+                      className="flex-1 text-2xl"
                     />
                   </div>
                   <div className="flex">
@@ -1188,7 +1396,7 @@ const handleKeyBindsChange = useCallback((bindings: KeyBind[]) => {
                       name="finance"
                       value={currentSale.finance || ""}
                       onChange={handleInputChange}
-                      className="flex-1"
+                      className="flex-1 text-2xl"
                     />
                   </div>
                   <div className="flex">
@@ -1207,7 +1415,7 @@ const handleKeyBindsChange = useCallback((bindings: KeyBind[]) => {
                       name="repair"
                       value={currentSale.repair || ""}
                       onChange={handleInputChange}
-                      className="flex-1"
+                      className="flex-1 text-2xl"
                     />
                   </div>
                   <div className="flex">
@@ -1226,7 +1434,7 @@ const handleKeyBindsChange = useCallback((bindings: KeyBind[]) => {
                       name="penalty"
                       value={currentSale.penalty || ""}
                       onChange={handleInputChange}
-                      className="flex-1"
+                      className="flex-1 text-2xl"
                     />
                   </div>
                   <div className="flex">
@@ -1245,7 +1453,7 @@ const handleKeyBindsChange = useCallback((bindings: KeyBind[]) => {
                       type="number"
                       name="total"
                       value={currentSale.total || ""}
-                      className="flex-1 bg-gray-50"
+                      className="flex-1 text-2xl bg-gray-50"
                     />
                   </div>
                 </div>
@@ -1255,10 +1463,10 @@ const handleKeyBindsChange = useCallback((bindings: KeyBind[]) => {
                 <div className="space-y-2">
                   <div className="flex">
                     <label
-                      className="w-20"
+                      className="w-36"
                       style={{
                         backgroundColor: labelColor,
-                        padding: "0px 4px",
+                        padding: "4px 4px",
                         borderRadius: "4px",
                       }}
                     >
@@ -1269,26 +1477,8 @@ const handleKeyBindsChange = useCallback((bindings: KeyBind[]) => {
                       name="dueAmount"
                       value={currentSale.dueAmount || ""}
                       onChange={handleInputChange}
-                      className="flex-1"
-                    />
-                  </div>
-                  <div className="flex">
-                    <label
-                      className="w-fit"
-                      style={{
-                        backgroundColor: labelColor,
-                        padding: "0px 4px",
-                        borderRadius: "4px",
-                      }}
-                    >
-                      Due Date
-                    </label>
-                    <Input
-                      type="date"
-                      name="dueDate"
-                      value={currentSale.dueDate}
-                      onChange={handleInputChange}
-                      className="flex-1"
+                      className="flex-1 text-2xl w-[75%]"
+                      disabled
                     />
                   </div>
                   <div className="flex">
@@ -1300,14 +1490,22 @@ const handleKeyBindsChange = useCallback((bindings: KeyBind[]) => {
                         borderRadius: "4px",
                       }}
                     >
-                      Remind
+                      Due
                     </label>
                     <Input
-                      type="time"
-                      name="reminder"
-                      value={currentSale.reminder}
-                      onChange={handleInputChange}
-                      className="flex-1"
+                      type="date"
+                      name="dueDate"
+                      value={formatToInputDate(currentSale.dueDate)}
+                      onChange={(e) => {
+                        const formattedDate = formatToDisplayDate(
+                          e.target.value
+                        );
+                        setCurrentSale((prev) => ({
+                          ...prev,
+                          dueDate: formattedDate,
+                        }));
+                      }}
+                      className="flex-1 text-md w-full"
                     />
                   </div>
                 </div>
@@ -1315,7 +1513,6 @@ const handleKeyBindsChange = useCallback((bindings: KeyBind[]) => {
             </div>
           </div>
 
-          {/* Installments Grid */}
           {/* Installments Grid */}
           <div className="mb-4">
             <h3
@@ -1330,21 +1527,25 @@ const handleKeyBindsChange = useCallback((bindings: KeyBind[]) => {
             </h3>
             <div className="grid grid-cols-2 gap-2">
               {currentSale.installments
-                .slice(0, 8)
+                .slice(0, 10)
                 .map((installment, index) => (
                   <div key={index} className="flex items-center gap-2">
-                    <div className="flex-1">
+                    <div className="flex-1 text-2xl">
                       <Input
                         type="date"
-                        value={installment.date}
+                        value={formatToInputDate(installment.date)}
                         onChange={(e) =>
-                          handleInstallmentChange(index, "date", e.target.value)
+                          handleInstallmentChange(
+                            index,
+                            "date",
+                            e.target.value
+                          )
                         }
-                        className="w-full  h-8"
+                        className="w-full h-8 text-2xl"
                         disabled={!installment.enabled}
                       />
                     </div>
-                    <div className="flex-1">
+                    <div className="flex-1 text-2xl">
                       <Input
                         type="number"
                         value={installment.amount || ""}
@@ -1355,7 +1556,7 @@ const handleKeyBindsChange = useCallback((bindings: KeyBind[]) => {
                             e.target.value
                           )
                         }
-                        className="w-full  h-8"
+                        className="w-full h-8 text-2xl"
                         disabled={!installment.enabled}
                       />
                     </div>
@@ -1369,59 +1570,14 @@ const handleKeyBindsChange = useCallback((bindings: KeyBind[]) => {
                   </div>
                 ))}
             </div>
-            {/* <div className="grid grid-cols-2 gap-2 mt-2">
-              {currentSale.installments
-                .slice(10, 20)
-                .map((installment, index) => (
-                  <div key={index + 10} className="flex items-center gap-2">
-                    <div className="flex-1">
-                      <Input
-                        type="date"
-                        value={installment.date}
-                        onChange={(e) =>
-                          handleInstallmentChange(
-                            index + 10,
-                            "date",
-                            e.target.value
-                          )
-                        }
-                        className="w-full  h-8"
-                        disabled={!installment.enabled}
-                      />
-                    </div>
-                    <div className="flex-1">
-                      <Input
-                        type="number"
-                        value={installment.amount || ""}
-                        onChange={(e) =>
-                          handleInstallmentChange(
-                            index + 10,
-                            "amount",
-                            e.target.value
-                          )
-                        }
-                        className="w-full  h-8"
-                        disabled={!installment.enabled}
-                      />
-                    </div>
-                    <Checkbox
-                      checked={installment.enabled}
-                      onCheckedChange={(checked) =>
-                        handleInstallmentChange(index + 10, "enabled", checked)
-                      }
-                      className="h-4 w-4"
-                    />
-                  </div>
-                ))}
-            </div> */}
           </div>
         </div>
 
         {/* Photo Column */}
-        <div className="col-span-2 p-4  bg-gray-50">
-          <div className="flex flex-col h-full">
+        <div className="col-span-2 bg-[#0080FF] h-fit ">
+          <div className="flex flex-col border-gray-900 border">
             <h3
-              className="mb-2"
+              className="mb-2 flex justify-between"
               style={{
                 backgroundColor: labelColor,
                 padding: "0px 4px",
@@ -1429,9 +1585,17 @@ const handleKeyBindsChange = useCallback((bindings: KeyBind[]) => {
               }}
             >
               Vehicle Photo
+              <Button
+                variant="outline"
+                onClick={handleAddPhoto}
+                className="w-fit bg-red-400"
+              >
+                <Camera className="h-4 w-4 mr-2" />
+                {photoPreview ? "Change Photo" : "Add Photo"}
+              </Button>
             </h3>
 
-            <div className="flex flex-col items-center justify-center border-2 border-dashed border-gray-300 -md p-4 mb-4 relative">
+            <div className="flex flex-col items-center justify-center border-2 border-dashed border-gray-300 p-4 mb-4 relative">
               {photoPreview ? (
                 <div className="relative w-fit h-64 flex items-center justify-center">
                   <div
@@ -1441,39 +1605,23 @@ const handleKeyBindsChange = useCallback((bindings: KeyBind[]) => {
                     <img
                       src={photoPreview}
                       alt="Vehicle"
-                      className="w-fit h-64 object-contain "
+                      className="w-full h-64 object-contain"
                     />
-                    <ZoomIn className="h-8 w-8 text-white" />
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity "></div>
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <ZoomIn className="h-8 text-2xl w-8 text-white" />
+                    </div>
                   </div>
                 </div>
               ) : (
-                <div className="text-center text-gray-500">
+                <div className="text-center items-center flex text-white h-64">
                   <p>No photo available</p>
                 </div>
               )}
             </div>
-            <Button
-              variant="outline"
-              onClick={handleAddPhoto}
-              className="w-full bg-red-400"
-            >
-              <Camera className="h-4 w-4 mr-2" />
-              {photoPreview ? "Change Photo" : "Add Photo"}
-            </Button>
+
             {/* Witness Details */}
-            <div className="mb-4">
-              <h3
-                className="mb-2"
-                style={{
-                  backgroundColor: labelColor,
-                  padding: "0px 4px",
-                  borderRadius: "4px",
-                }}
-              >
-                Witness Details
-              </h3>
-              <div className="grid grid-cols-2  gap-4">
+            <div className="mb-1">
+              <div className="grid grid-cols-2 gap-4">
                 <div className="flex">
                   <label
                     className="w-20"
@@ -1489,7 +1637,7 @@ const handleKeyBindsChange = useCallback((bindings: KeyBind[]) => {
                     name="witness"
                     value={currentSale.witness || ""}
                     onChange={handleInputChange}
-                    className="flex-1"
+                    className="flex-1 text-2xl"
                   />
                 </div>
                 <div className="flex">
@@ -1507,7 +1655,7 @@ const handleKeyBindsChange = useCallback((bindings: KeyBind[]) => {
                     name="witnessAddress"
                     value={currentSale.witnessAddress || ""}
                     onChange={handleInputChange}
-                    className="flex-1"
+                    className="flex-1 text-2xl"
                   />
                 </div>
                 <div className="flex">
@@ -1525,7 +1673,7 @@ const handleKeyBindsChange = useCallback((bindings: KeyBind[]) => {
                     name="witnessContact"
                     value={currentSale.witnessContact || ""}
                     onChange={handleInputChange}
-                    className="flex-1"
+                    className="flex-1 text-2xl"
                   />
                 </div>
                 <div className="flex">
@@ -1543,95 +1691,32 @@ const handleKeyBindsChange = useCallback((bindings: KeyBind[]) => {
                     name="witnessName2"
                     value={currentSale.witnessName2 || ""}
                     onChange={handleInputChange}
-                    className="flex-1"
+                    className="flex-1 text-2xl"
                   />
                 </div>
               </div>
             </div>
 
             {/* Remarks */}
-            <div className="mb-4">
+            <div className="flex w-full">
               <h3
                 className="mb-2"
                 style={{
                   backgroundColor: labelColor,
-                  padding: "0px 4px",
+                  padding: "4px 4px",
                   borderRadius: "4px",
                 }}
               >
                 Remarks
               </h3>
-              <div className="space-y-2">
-                <div className="flex">
+              <div className="space-y-2 w-full">
+                <div className="flex flex-1 text-2xl">
                   <Input
                     name="remark"
                     value={currentSale.remark || ""}
                     onChange={handleInputChange}
-                    className="flex-1"
+                    className="flex-1 text-2xl"
                   />
-                </div>
-                {/* <div className="flex items-center">
-                  <Checkbox
-                    name="rcBook"
-                    checked={currentSale.rcBook}
-                    onCheckedChange={(checked) => {
-                      setCurrentSale({
-                        ...currentSale,
-                        rcBook: !!checked,
-                      });
-                    }}
-                    className="mr-2"
-                  />
-                  <label>R.C. Book</label>
-                </div> */}
-                <div className="grid grid-cols-2 gap-2 mt-2">
-                  {currentSale.installments
-                    .slice(10, 20)
-                    .map((installment, index) => (
-                      <div key={index + 10} className="flex items-center gap-2">
-                        <div className="flex-1">
-                          <Input
-                            type="date"
-                            value={installment.date}
-                            onChange={(e) =>
-                              handleInstallmentChange(
-                                index + 10,
-                                "date",
-                                e.target.value
-                              )
-                            }
-                            className="w-full  h-8"
-                            disabled={!installment.enabled}
-                          />
-                        </div>
-                        <div className="flex-1">
-                          <Input
-                            type="number"
-                            value={installment.amount || ""}
-                            onChange={(e) =>
-                              handleInstallmentChange(
-                                index + 10,
-                                "amount",
-                                e.target.value
-                              )
-                            }
-                            className="w-full  h-8"
-                            disabled={!installment.enabled}
-                          />
-                        </div>
-                        <Checkbox
-                          checked={installment.enabled}
-                          onCheckedChange={(checked) =>
-                            handleInstallmentChange(
-                              index + 10,
-                              "enabled",
-                              checked
-                            )
-                          }
-                          className="h-4 w-4"
-                        />
-                      </div>
-                    ))}
                 </div>
               </div>
             </div>
@@ -1644,18 +1729,64 @@ const handleKeyBindsChange = useCallback((bindings: KeyBind[]) => {
               style={{ display: "none" }}
             />
           </div>
+          <div className="grid grid-cols-2 gap-2">
+            {currentSale.installments
+              .slice(10, 20)
+              .map((installment, index) => (
+                <div key={index} className="flex items-center gap-2">
+                  <div className="flex-1 text-2xl">
+                    <Input
+                      type="date"
+                      value={formatToInputDate(installment.date)}
+                      onChange={(e) =>
+                        handleInstallmentChange(
+                          index + 10,
+                          "date",
+                          e.target.value
+                        )
+                      }
+                      className="w-full h-8 text-2xl"
+                      disabled={!installment.enabled}
+                    />
+                  </div>
+                  <div className="flex-1 text-2xl">
+                    <Input
+                      type="number"
+                      value={installment.amount || ""}
+                      onChange={(e) =>
+                        handleInstallmentChange(
+                          index + 10,
+                          "amount",
+                          e.target.value
+                        )
+                      }
+                      className="w-full h-8 text-2xl"
+                      disabled={!installment.enabled}
+                    />
+                  </div>
+                  <Checkbox
+                    checked={installment.enabled}
+                    onCheckedChange={(checked) =>
+                      handleInstallmentChange(index + 10, "enabled", checked)
+                    }
+                    className="h-4 w-4"
+                  />
+                </div>
+              ))}
+          </div>
         </div>
       </div>
-      {/* 
-      {photoPreview && (
-        <ImagePreviewModal 
-          imageUrl={photoPreview} 
+
+      {/* Image Preview Modal */}
+      {showPhotoModal && photoPreview && (
+        <ImagePreviewModal
+          imageUrl={photoPreview}
           showCloseButton={true}
           onClose={() => setShowPhotoModal(false)}
           alt="Vehicle"
           showModal={showPhotoModal}
         />
-      )} */}
+      )}
     </div>
   );
 };

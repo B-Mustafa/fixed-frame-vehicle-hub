@@ -16,6 +16,7 @@ import {
   updateSupabaseSale,
   deleteSupabaseSale,
 } from "@/integrations/supabase/service";
+import { DuePayment } from "@/utils/dataStorage";
 
 export const emptySale: Omit<VehicleSale, "id"> = {
   date: format(new Date(), "yyyy-MM-dd"),
@@ -207,7 +208,7 @@ export const useSalesData = () => {
           );
 
           if (existingDuePayment) {
-            await updateDuePayment({
+            const payment = {
               ...existingDuePayment,
               dueAmount: updatedSale.dueAmount,
               dueDate: updatedSale.dueDate,
@@ -215,7 +216,8 @@ export const useSalesData = () => {
               model: updatedSale.model,
               contact: updatedSale.phone,
               address: updatedSale.address,
-            });
+            };
+            await updateDuePaymentFn(payment);
           }
         }
 
@@ -361,6 +363,17 @@ export const useSalesData = () => {
     });
     // Call fetchSales after toggling the storage mode to refresh data
     fetchSales();
+  };
+
+  const updateDuePaymentFn = async (payment: DuePayment) => {
+    try {
+      // Use the correct function with id parameter
+      await import("@/utils/dataStorage").then(
+        ({ updateDuePayment }) => updateDuePayment(payment.id, payment)
+      );
+    } catch (error) {
+      console.error("Error updating due payment:", error);
+    }
   };
 
   return {
