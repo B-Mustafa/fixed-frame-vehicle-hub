@@ -9,8 +9,8 @@
 // WITH:
 import { handleTextAreaEvent } from '@/utils/domHelpers';
 // ...
-const textarea = handleTextAreaEvent(e);
-const value = textarea.value;
+// const textarea = handleTextAreaEvent(e);
+// const value = textarea.value;
 
 // 2. Fix the focus issue (around line 848)
 // REPLACE: 
@@ -18,7 +18,7 @@ const value = textarea.value;
 // WITH:
 import { focusElement } from '@/utils/domHelpers';
 // ...
-focusElement(someElement);
+// focusElement(someElement);
 
 // 3. Fix the void truthiness check issue (around line 236)
 // REPLACE:
@@ -27,8 +27,8 @@ focusElement(someElement);
 //   }
 // WITH:
 // Do the saveToLocalStorage call, then toast regardless
-saveToLocalStorage(...);
-toast(...);
+// saveToLocalStorage(...);
+// toast(...);
 
 // 4. Fix type issues on sales array:
 // Make sure any object with partial fields being mapped to sales array 
