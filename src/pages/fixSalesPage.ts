@@ -26,7 +26,6 @@ import { focusElement } from '@/utils/domHelpers';
 //     toast(...)
 //   }
 // WITH:
-// Do the saveToLocalStorage call, then toast regardless
 // saveToLocalStorage(...);
 // toast(...);
 

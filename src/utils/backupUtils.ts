@@ -1,9 +1,10 @@
+
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
 import { join } from 'path';
 
-// Using a fixed path for data storage instead of user selection
-const DATA_PATH = join(process.env.USERPROFILE || process.env.HOME || '', 'Documents', 'SalesApp');
+// Using a fixed path in the website root directory instead of user's Documents
+const DATA_PATH = './data';
 
 // Interface definitions for FileSystem API
 interface FileSystemDirectoryHandle {
@@ -106,7 +107,7 @@ export const saveToBackup = async (data: any, fileName: string, type: "excel" | 
     // For browser environment with FileSystem API
     if (window.showDirectoryPicker) {
       // Use previously created fixed structure instead of prompting
-      // This will create a data directory in the user's documents folder
+      // This will create a data directory in the website root folder
       try {
         const electronSaved = await handleBackup(data, fileName, type);
         if (electronSaved) return true;
