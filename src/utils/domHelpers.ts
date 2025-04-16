@@ -20,6 +20,16 @@ export const focusElement = (element: Element | null): void => {
   }
 };
 
+// Extend the Window interface to include the electron property
+declare global {
+  interface Window {
+    electron?: {
+      createDirectory: (path: string) => Promise<boolean>;
+      saveFile: (data: any, filePath: string) => Promise<boolean>;
+    };
+  }
+}
+
 /**
  * Creates a directory for data storage at the application root
  * This is used to initialize the data directory structure

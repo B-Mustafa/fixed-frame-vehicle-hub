@@ -64,6 +64,8 @@ export const vehicleSaleToSupabase = (sale: Omit<VehicleSale, "id"> | VehicleSal
     remark: sale.remark,
     photo_url: sale.photoUrl,
     manual_id: sale.manualId,
+    rc_book: sale.rcBook,
+    reminder: sale.reminder
   };
 };
 

@@ -5,6 +5,7 @@ import { VehicleSale } from '@/utils/dataStorage';
 export interface SupabaseSale extends Omit<VehicleSale, 'id'> {
   id?: number;
   transport_cost: number; // snake_case for Supabase
+  vehicle_no: string; // Added this field
   due_date: string;
   due_amount: number;
   witness_address: string;
