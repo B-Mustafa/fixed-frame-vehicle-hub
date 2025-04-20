@@ -1,59 +1,37 @@
 
-// Helper functions for DOM manipulation
-
-/**
- * Safely handles textarea change events and returns the textarea element
- * Use this to avoid TypeScript errors when working with textarea events
- */
-export const handleTextAreaEvent = (
-  e: React.ChangeEvent<HTMLTextAreaElement>
-): HTMLTextAreaElement => {
-  return e.target;
+// Function to initialize the data directory
+export const initializeDataDirectory = async () => {
+  try {
+    // For browser environment
+    const dataDir = './data';
+    
+    // Create directory if it doesn't exist
+    try {
+      await window.electron?.createDirectory(dataDir);
+      console.log('Data directory created/verified:', dataDir);
+      return true;
+    } catch (error) {
+      console.warn('Could not create data directory:', error);
+      return false;
+    }
+  } catch (error) {
+    console.error('Error initializing data directory:', error);
+    return false;
+  }
 };
 
-/**
- * Safely focuses an element if it exists and has a focus method
- */
-export const focusElement = (element: Element | null): void => {
-  if (element && 'focus' in element && typeof element.focus === 'function') {
+// Simple helper for handling textarea events
+export const handleTextAreaEvent = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+  const textarea = e.target;
+  textarea.style.height = 'auto';
+  textarea.style.height = textarea.scrollHeight + 'px';
+  return textarea;
+};
+
+// Helper to focus an element
+export const focusElement = (element: HTMLElement | null) => {
+  if (element && typeof element.focus === 'function') {
     element.focus();
   }
 };
 
-// Extend the Window interface to include the electron property
-declare global {
-  interface Window {
-    electron?: {
-      createDirectory: (path: string) => Promise<boolean>;
-      saveFile: (data: any, filePath: string) => Promise<boolean>;
-    };
-  }
-}
-
-/**
- * Creates a directory for data storage at the application root
- * This is used to initialize the data directory structure
- */
-export const initializeDataDirectory = (): Promise<boolean> => {
-  return new Promise((resolve) => {
-    try {
-      // In browser environment, we can't create directories at the root
-      // In Electron environment, the main process handles this
-      if (window.electron) {
-        window.electron
-          .createDirectory('./data')
-          .then(() => resolve(true))
-          .catch((err: any) => {
-            console.error('Error creating data directory:', err);
-            resolve(false);
-          });
-      } else {
-        // In browser, just report success since we'll fall back to downloads
-        resolve(true);
-      }
-    } catch (error) {
-      console.error('Error initializing data directory:', error);
-      resolve(false);
-    }
-  });
-};

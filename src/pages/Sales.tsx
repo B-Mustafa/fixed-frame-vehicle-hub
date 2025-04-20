@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,10 +24,8 @@ import {
   addSale,
   updateSale,
   deleteSale,
-  exportToExcel,
-  createBackup,
-  restoreBackup,
-  resetLastId,
+  getDuePayments,
+  updateDuePayment,
 } from "@/utils/dataStorage";
 import { useSalesData, emptySale } from "@/hooks/useSalesData";
 import { format } from "date-fns";

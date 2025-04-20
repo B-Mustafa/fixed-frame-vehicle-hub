@@ -3,6 +3,21 @@ import { VehicleSale } from '@/utils/dataStorage';
 import { SupabaseSale } from '../types/sale';
 import { format } from 'date-fns';
 
+// Utility functions for case conversion
+export const snakeToCamel = (str: string) =>
+  str.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
+
+export const camelToSnake = (str: string) =>
+  str.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+
+export const transformKeys = (obj: any, transform: (key: string) => string) => {
+  const result: any = {};
+  Object.keys(obj).forEach((key) => {
+    result[transform(key)] = obj[key];
+  });
+  return result;
+};
+
 // Convert vehicle sale to Supabase format
 export const vehicleSaleToSupabase = (sale: VehicleSale): SupabaseSale => {
   return {
@@ -12,6 +27,12 @@ export const vehicleSaleToSupabase = (sale: VehicleSale): SupabaseSale => {
     due_date: sale.dueDate,
     due_amount: sale.dueAmount,
     witness_address: sale.witnessAddress,
+    witness_contact: sale.witnessContact,
+    witness_name2: sale.witnessName2,
+    photo_url: sale.photoUrl || '',
+    manual_id: sale.manualId || '',
+    rcBook: sale.rcBook || false,
+    reminder: sale.reminder || '00:00'
   };
 };
 
@@ -93,3 +114,4 @@ export const apiRequestToSupabaseSale = (data: any): Partial<SupabaseSale> => {
     reminder: data.reminder || '00:00',
   };
 };
+

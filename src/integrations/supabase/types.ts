@@ -40,15 +40,7 @@ export type Database = {
           sale_id?: number | null
           updated_at?: string | null
         }
-        Relationships: [
-          {
-            foreignKeyName: "installments_sale_id_fkey"
-            columns: ["sale_id"]
-            isOneToOne: false
-            referencedRelation: "vehicle_sales"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       vehicle_purchases: {
         Row: {
@@ -119,102 +111,6 @@ export type Database = {
           transport_cost?: number | null
           updated_at?: string | null
           vehicle_no?: string
-        }
-        Relationships: []
-      }
-      vehicle_sales: {
-        Row: {
-          address: string
-          chassis: string | null
-          created_at: string | null
-          date: string
-          due_amount: number | null
-          due_date: string | null
-          finance: number | null
-          id: number
-          installments: Json | null
-          insurance: number | null
-          manual_id: string | null
-          model: string
-          party: string
-          penalty: number | null
-          phone: string | null
-          photo_url: string | null
-          price: number
-          rc_book: boolean | null
-          remark: string | null
-          reminder: string | null
-          repair: number | null
-          total: number
-          transport_cost: number | null
-          updated_at: string | null
-          vehicle_no: string
-          witness: string | null
-          witness_address: string | null
-          witness_contact: string | null
-          witness_name2: string | null
-        }
-        Insert: {
-          address: string
-          chassis?: string | null
-          created_at?: string | null
-          date: string
-          due_amount?: number | null
-          due_date?: string | null
-          finance?: number | null
-          id?: number
-          installments?: Json | null
-          insurance?: number | null
-          manual_id?: string | null
-          model: string
-          party: string
-          penalty?: number | null
-          phone?: string | null
-          photo_url?: string | null
-          price?: number
-          rc_book?: boolean | null
-          remark?: string | null
-          reminder?: string | null
-          repair?: number | null
-          total?: number
-          transport_cost?: number | null
-          updated_at?: string | null
-          vehicle_no: string
-          witness?: string | null
-          witness_address?: string | null
-          witness_contact?: string | null
-          witness_name2?: string | null
-        }
-        Update: {
-          address?: string
-          chassis?: string | null
-          created_at?: string | null
-          date?: string
-          due_amount?: number | null
-          due_date?: string | null
-          finance?: number | null
-          id?: number
-          installments?: Json | null
-          insurance?: number | null
-          manual_id?: string | null
-          model?: string
-          party?: string
-          penalty?: number | null
-          phone?: string | null
-          photo_url?: string | null
-          price?: number
-          rc_book?: boolean | null
-          remark?: string | null
-          reminder?: string | null
-          repair?: number | null
-          total?: number
-          transport_cost?: number | null
-          updated_at?: string | null
-          vehicle_no?: string
-          witness?: string | null
-          witness_address?: string | null
-          witness_contact?: string | null
-          witness_name2?: string | null
         }
         Relationships: []
       }
