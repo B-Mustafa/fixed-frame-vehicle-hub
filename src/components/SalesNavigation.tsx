@@ -1,4 +1,3 @@
-
 import React from "react";
 import { Button } from "@/components/ui/button";
 import { FileDown, FileUp, Printer } from "lucide-react";
@@ -22,8 +21,8 @@ interface SalesNavigationProps {
 }
 
 const SalesNavigation: React.FC<SalesNavigationProps> = ({
-  sales,
-  currentIndex,
+  sales = [],
+  currentIndex = 0,
   useSupabase,
   navigateFirst,
   navigatePrev,
@@ -38,13 +37,17 @@ const SalesNavigation: React.FC<SalesNavigationProps> = ({
   toggleSupabase,
   currentSale,
 }) => {
+  // Ensure sales is always an array and currentIndex is valid
+  const safeSales = Array.isArray(sales) ? sales : [];
+  const safeCurrentIndex = Math.max(0, Math.min(currentIndex, safeSales.length - 1));
+
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 sticky top-0 z-10">
       <div className="flex items-center gap-2 flex-wrap">
         <Button
           variant="outline"
           onClick={navigateFirst}
-          disabled={sales.length === 0 || currentIndex === 0}
+          disabled={safeSales.length === 0 || safeCurrentIndex === 0}
           size="sm"
         >
           First
@@ -52,7 +55,7 @@ const SalesNavigation: React.FC<SalesNavigationProps> = ({
         <Button
           variant="outline"
           onClick={navigatePrev}
-          disabled={sales.length === 0 || currentIndex <= 0}
+          disabled={safeSales.length === 0 || safeCurrentIndex <= 0}
           size="sm"
         >
           Prev
@@ -60,7 +63,7 @@ const SalesNavigation: React.FC<SalesNavigationProps> = ({
         <Button
           variant="outline"
           onClick={navigateNext}
-          disabled={sales.length === 0 || currentIndex >= sales.length - 1}
+          disabled={safeSales.length === 0 || safeCurrentIndex >= safeSales.length - 1}
           size="sm"
         >
           Next
@@ -68,7 +71,7 @@ const SalesNavigation: React.FC<SalesNavigationProps> = ({
         <Button
           variant="outline"
           onClick={navigateLast}
-          disabled={sales.length === 0 || currentIndex === sales.length - 1}
+          disabled={safeSales.length === 0 || safeCurrentIndex === safeSales.length - 1}
           size="sm"
         >
           Last
@@ -79,7 +82,7 @@ const SalesNavigation: React.FC<SalesNavigationProps> = ({
         <Button
           variant="outline"
           onClick={handleDelete}
-          disabled={!currentSale.id}
+          disabled={!currentSale?.id}
           size="sm"
         >
           Del

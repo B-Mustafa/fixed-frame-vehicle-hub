@@ -3,6 +3,59 @@ import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
 import { VehicleSale, VehiclePurchase, DuePayment } from './dataStorage';
 
+const DATA_FOLDER = '../../data';
+
+// Helper function to save Excel file
+const saveExcelFile = (data: any[], fileName: string) => {
+  try {
+    const workbook = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.json_to_sheet(data);
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Data");
+    
+    // In browser environment, use file-saver
+    const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+    const blob = new Blob([excelBuffer], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    });
+    
+    saveAs(blob, `${DATA_FOLDER}/${fileName}`);
+    return true;
+  } catch (error) {
+    console.error('Error saving Excel file:', error);
+    return false;
+  }
+};
+
+// Read Excel file (if exists) or create new
+const getOrCreateExcelFile = async (fileName: string, initialData: any[] = []) => {
+  try {
+    // In a real implementation, you would check if file exists
+    // For browser environment, we'll just return the initial data
+    return initialData;
+  } catch (error) {
+    console.error(`Error reading ${fileName}:`, error);
+    return initialData;
+  }
+};
+
+// Sales Excel operations
+export const getSalesFromExcel = async (): Promise<VehicleSale[]> => {
+  return getOrCreateExcelFile('sales.xlsx', []);
+};
+
+export const saveSalesToExcel = async (sales: VehicleSale[]) => {
+  return saveExcelFile(sales, 'sales.xlsx');
+};
+
+// Purchase Excel operations
+export const getPurchasesFromExcel = async (): Promise<VehiclePurchase[]> => {
+  return getOrCreateExcelFile('purchases.xlsx', []);
+};
+
+export const savePurchasesToExcel = async (purchases: VehiclePurchase[]) => {
+  return saveExcelFile(purchases, 'purchases.xlsx');
+};
+
 // Function to export data to Excel with styling
 export const exportToExcel = <T extends Record<string, any>[]>(data: T, fileName: string, sheetName = 'Data'): void => {
   try {

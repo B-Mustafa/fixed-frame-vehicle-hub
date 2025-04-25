@@ -16,10 +16,12 @@ import {
   addSupabaseSale,
   updateSupabaseSale,
   deleteSupabaseSale,
+  vehicleSaleToSupabase,
 } from "@/integrations/supabase/service";
 import { DuePayment } from "@/utils/dataStorage";
 import { saveToBackup } from "@/utils/backupUtils";
 import { exportSalesToExcel } from "@/utils/excelStorage";
+import { supabase } from "@/integrations/supabase/client";
 
 export const emptySale: Omit<VehicleSale, "id"> = {
   date: format(new Date(), "yyyy-MM-dd"),
@@ -56,6 +58,7 @@ export const emptySale: Omit<VehicleSale, "id"> = {
       enabled: false,
     })),
 };
+
 
 export const useSalesData = () => {
   const [currentSale, setCurrentSale] = useState<
@@ -205,103 +208,25 @@ export const useSalesData = () => {
   };
 
   const handleSave = async () => {
-    if (!currentSale.party || !currentSale.vehicleNo || !currentSale.model) {
-      toast({
-        title: "Error",
-        description:
-          "Please fill in all required fields: Party, Vehicle No, and Model",
-        variant: "destructive",
-      });
-      return;
-    }
-
+    console.log('Original sale data:', currentSale);
+    const supabaseData = vehicleSaleToSupabase(currentSale);
+    console.log('Data being sent to Supabase:', supabaseData);
+    
     try {
-      const updatedSales = [...sales];
-      let updatedSale;
-
-      if (useSupabase) {
-        // Use Supabase
-        if (currentSale.id) {
-          updatedSale = await updateSupabaseSale(currentSale as VehicleSale);
-        } else {
-          // Make sure address is not undefined
-          const saleToAdd = {
-            ...currentSale,
-            address: currentSale.address || ""
-          };
-          updatedSale = await addSupabaseSale(saleToAdd);
-        }
-      } else {
-        // Use local storage
-        if (currentSale.id) {
-          updatedSale = await updateSale(currentSale as VehicleSale);
-        } else {
-          updatedSale = await addSale(currentSale);
-        }
-      }
-
-      if (currentSale.id) {
-        const index = updatedSales.findIndex((s) => s.id === updatedSale.id);
-        if (index >= 0) {
-          updatedSales[index] = updatedSale;
-        } else {
-          updatedSales.push(updatedSale);
-        }
-
-        if (updatedSale.dueAmount > 0) {
-          const duePayments = await getDuePayments();
-          const existingDuePayment = duePayments.find(
-            (dp) => dp.vehicleNo === updatedSale.vehicleNo
-          );
-
-          if (existingDuePayment) {
-            const payment = {
-              ...existingDuePayment,
-              dueAmount: updatedSale.dueAmount,
-              dueDate: updatedSale.dueDate,
-              party: updatedSale.party,
-              model: updatedSale.model,
-              contact: updatedSale.phone,
-              address: updatedSale.address,
-            };
-            await updateDuePaymentFn(payment);
-          }
-        }
-
-        toast({
-          title: "Sale Updated",
-          description: `Sale to ${updatedSale.party} has been updated.`,
-        });
-      } else {
-        updatedSales.push(updatedSale);
-        setCurrentSale({
-          ...updatedSale,
-          manualId: updatedSale.manualId || updatedSale.id?.toString() || "",
-        });
-        setCurrentIndex(updatedSales.length - 1);
-        toast({
-          title: "Sale Added",
-          description: `New sale to ${updatedSale.party} has been added.`,
-        });
-      }
-
-      setSales(updatedSales);
+      const { data, error } = await supabase
+        .from('vehicle_sales')
+        .insert(supabaseData)
+        .select();
       
-      // Save to local folder structure regardless of Supabase setting
-      const localSaved = await saveToLocalStorage(updatedSale);
-      if (localSaved) {
-        toast({
-          title: "Local Backup Created",
-          description: "Sale data and image saved to local data folder",
-        });
-      }
+      if (error) throw error;
+      return data;
     } catch (error) {
-      console.error("Error saving sale:", error);
-      toast({
-        title: "Error",
-        description: "Failed to save sale",
-        variant: "destructive",
+      console.error('Full error details:', {
+        message: error.message,
+        code: error.code,
+        details: error.details
       });
+      throw error;
     }
   };
 

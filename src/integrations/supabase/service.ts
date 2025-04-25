@@ -17,7 +17,7 @@ export type { SupabaseSale } from './types/sale';
 // Also export the utility functions
 export {
   vehicleSaleToSupabase,
-  supabaseSaleToVehicleSale,
+  supabaseToVehicleSale,
   snakeToCamel,
   camelToSnake,
   transformKeys

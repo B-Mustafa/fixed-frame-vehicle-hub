@@ -2,6 +2,7 @@
 import { VehicleSale } from '@/utils/dataStorage';
 import { SupabaseSale } from '../types/sale';
 import { format } from 'date-fns';
+import { formatToInputDate } from '@/utils/dateUtils';
 
 // Utility functions for case conversion
 export const snakeToCamel = (str: string) =>
@@ -19,25 +20,36 @@ export const transformKeys = (obj: any, transform: (key: string) => string) => {
 };
 
 // Convert vehicle sale to Supabase format
-export const vehicleSaleToSupabase = (sale: VehicleSale): SupabaseSale => {
+export const vehicleSaleToSupabase = (sale: VehicleSale) => {
   return {
-    ...sale,
-    transport_cost: sale.transportCost,
-    vehicle_no: sale.vehicleNo || '',
-    due_date: sale.dueDate,
-    due_amount: sale.dueAmount,
+    manual_id: sale.manualId,
+    date: formatToInputDate(sale.date),
+    party: sale.party,
+    address: sale.address,
+    phone: sale.phone,
+    model: sale.model,
+    vehicle_no: sale.vehicleNo,
+    chassis: sale.chassis,
+    price: sale.price,
+    transport_cost: sale.transportCost || 0,
+    insurance: sale.insurance || 0,
+    finance: sale.finance || 0,
+    repair: sale.repair || 0,
+    penalty: sale.penalty || 0,
+    total: sale.total || 0,
+    due_date: formatToInputDate(sale.dueDate),
+    due_amount: sale.dueAmount || 0, // This is the critical fix
+    witness: sale.witness,
     witness_address: sale.witnessAddress,
     witness_contact: sale.witnessContact,
     witness_name2: sale.witnessName2,
-    photo_url: sale.photoUrl || '',
-    manual_id: sale.manualId || '',
-    rcBook: sale.rcBook || false,
-    reminder: sale.reminder || '00:00'
+    remark: sale.remark,
+    photo_url: sale.photoUrl
   };
 };
 
 // Convert Supabase sale to vehicle sale
-export const supabaseSaleToVehicleSale = (
+export const supabaseToVehicleSale = (
   sale: any,
   installments: any[] = []
 ): VehicleSale => {

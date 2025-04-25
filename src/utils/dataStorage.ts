@@ -2,6 +2,13 @@ import { createClient } from '@supabase/supabase-js';
 import * as XLSX from 'xlsx';
 import * as localforage from 'localforage';
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
+import { 
+  getSalesFromExcel, 
+  saveSalesToExcel,
+  getPurchasesFromExcel,
+  savePurchasesToExcel
+} from './excelStorage';
+import { supabase } from '@/integrations/supabase/client';
 
 // Types for our data
 export interface VehicleSale {
@@ -312,10 +319,12 @@ export const getSales = async (): Promise<VehicleSale[]> => {
     console.warn("Could not retrieve sales from NAS:", nasError);
   }
   
-  // Fallback to localStorage
-  const localData = JSON.parse(localStorage.getItem("vehicleSales") || "[]");
-  console.log('Retrieved sales from localStorage:', localData.length);
-  
+ // Fallback to Excel files
+ const excelSales = await getSalesFromExcel();
+ if (excelSales.length > 0) {
+   return excelSales;
+ }
+ 
   // Also save to IndexedDB for next time
   try {
     const database = await initDb();
@@ -370,21 +379,22 @@ export const getSale = async (id: number): Promise<VehicleSale | undefined> => {
 };
 
 export const addSale = async (sale: Omit<VehicleSale, "id">): Promise<VehicleSale> => {
+
+  const existingSales = await getSales();
+  const lastId = existingSales.length > 0 
+    ? Math.max(...existingSales.map(s => s.id)) 
+    : 0;
+  
+  const newSale = { ...sale, id: lastId + 1 };
+  
+  // Add to existing sales
+  const updatedSales = [...existingSales, newSale];
+  
+  // Save to Excel
+  await saveSalesToExcel(updatedSales);
   // Get last ID
-  let lastId = 0;
-  try {
-    const database = await initDb();
-    const allKeys = await database.getAllKeys('vehicleSales');
-    if (allKeys.length > 0) {
-      lastId = Math.max(...allKeys as number[]);
-    }
-  } catch (error) {
-    // Fallback to localStorage for ID
-    lastId = parseInt(localStorage.getItem("lastSaleId") || "0");
-  }
   
   const newId = lastId + 1;
-  const newSale = { ...sale, id: newId } as VehicleSale;
   
   // Try to save to IndexedDB
   try {
@@ -449,6 +459,16 @@ export const addSale = async (sale: Omit<VehicleSale, "id">): Promise<VehicleSal
 };
 
 export const updateSale = async (updatedSale: VehicleSale): Promise<VehicleSale> => {
+
+  const existingSales = await getSales();
+
+    // Update the sale
+    const updatedSales = existingSales.map(s => 
+      s.id === updatedSale.id ? updatedSale : s
+    );
+
+    
+  await saveSalesToExcel(updatedSales);
   // Try to update in IndexedDB
   try {
     const database = await initDb();
@@ -521,6 +541,10 @@ export const updateSale = async (updatedSale: VehicleSale): Promise<VehicleSale>
 };
 
 export const deleteSale = async (id: number): Promise<boolean> => {
+  const existingSales = await getSales();
+  // / Remove the sale
+  const updatedSales = existingSales.filter(s => s.id !== id);
+  await saveSalesToExcel(updatedSales);
   // Try to delete from IndexedDB
   try {
     const database = await initDb();
@@ -569,124 +593,53 @@ export const deleteSale = async (id: number): Promise<boolean> => {
   return false;
 };
 
-// Purchase CRUD operations
-export const getPurchases = async (): Promise<VehiclePurchase[]> => {
-  await initializeStorage();
-  
-  // Try NAS storage first
-  const nasData = await fetchFromNas("/purchases");
-  if (nasData) {
-    return nasData;
+
+export const getPurchase = async (): Promise<VehiclePurchase[]> => {
+  try {
+    const { data, error } = await supabase
+      .from('purchases')
+      .select(`
+        id,
+        date,
+        party,
+        address,
+        phone,
+        remark,
+        model,
+        vehicle_no:vehicleNo,
+        chassis,
+        price,
+        transport_cost:transportCost,
+        insurance,
+        finance,
+        repair,
+        penalty,
+        total,
+        photo_url:photoUrl,
+        manual_id:manualId,
+        brokerage,
+        witness,
+        created_at
+      `)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    
+    // Ensure proper mapping
+    return data?.map(item => ({
+      ...item,
+      vehicleNo: item.vehicle_no,
+      transportCost: item.transport_cost,
+      photoUrl: item.photo_url,
+      manualId: item.manual_id
+    })) || [];
+  } catch (error) {
+    console.error('Error loading purchases:', error);
+    return [];
   }
-  
-  // Fallback to localStorage
-  return JSON.parse(localStorage.getItem("vehiclePurchases") || "[]");
 };
 
-export const getPurchase = async (id: number): Promise<VehiclePurchase | undefined> => {
-  // Try NAS storage first
-  const nasPurchase = await fetchFromNas(`/purchases/${id}`);
-  if (nasPurchase) {
-    return nasPurchase;
-  }
-  
-  // Fallback to localStorage
-  const purchases = JSON.parse(localStorage.getItem("vehiclePurchases") || "[]");
-  return purchases.find((purchase: VehiclePurchase) => purchase.id === id);
-};
 
-export const addPurchase = async (purchase: Omit<VehiclePurchase, "id">): Promise<VehiclePurchase> => {
-  // Try NAS storage first
-  const nasPurchase = await fetchFromNas("/purchases", "POST", purchase);
-  if (nasPurchase) {
-    return nasPurchase;
-  }
-  
-  // Fallback to localStorage
-  const purchases = JSON.parse(localStorage.getItem("vehiclePurchases") || "[]");
-  const lastId = parseInt(localStorage.getItem("lastPurchaseId") || "0");
-  const newId = lastId + 1;
-  
-  const newPurchase = { ...purchase, id: newId };
-  purchases.push(newPurchase);
-  
-  localStorage.setItem("vehiclePurchases", JSON.stringify(purchases));
-  localStorage.setItem("lastPurchaseId", newId.toString());
-  
-  return newPurchase;
-};
-
-export const updatePurchase = async (updatedPurchase: VehiclePurchase): Promise<VehiclePurchase> => {
-  // Try NAS storage first
-  const nasUpdated = await fetchFromNas(`/purchases/${updatedPurchase.id}`, "PUT", updatedPurchase);
-  if (nasUpdated) {
-    return nasUpdated;
-  }
-  
-  // Fallback to localStorage
-  const purchases = JSON.parse(localStorage.getItem("vehiclePurchases") || "[]");
-  const index = purchases.findIndex((purchase: VehiclePurchase) => purchase.id === updatedPurchase.id);
-  
-  if (index !== -1) {
-    purchases[index] = updatedPurchase;
-    localStorage.setItem("vehiclePurchases", JSON.stringify(purchases));
-  }
-  
-  return updatedPurchase;
-};
-
-export const deletePurchase = async (id: number): Promise<boolean> => {
-  // Try NAS storage first
-  const nasDeleted = await fetchFromNas(`/purchases/${id}`, "DELETE");
-  if (nasDeleted) {
-    return true;
-  }
-  
-  // Fallback to localStorage
-  const purchases = JSON.parse(localStorage.getItem("vehiclePurchases") || "[]");
-  const newPurchases = purchases.filter((purchase: VehiclePurchase) => purchase.id !== id);
-  
-  if (newPurchases.length !== purchases.length) {
-    localStorage.setItem("vehiclePurchases", JSON.stringify(newPurchases));
-    return true;
-  }
-  
-  return false;
-};
-
-// Due Payments CRUD operations
-export const getDuePayments = async (): Promise<DuePayment[]> => {
-  await initializeStorage();
-  
-  // Try NAS storage first
-  const nasData = await fetchFromNas("/dues");
-  if (nasData) {
-    return nasData;
-  }
-  
-  // Fallback to localStorage
-  return JSON.parse(localStorage.getItem("duePayments") || "[]");
-};
-
-export const updateDuePayment = async (id: number, payment: Partial<DuePayment>): Promise<DuePayment | null> => {
-  // Try NAS storage first
-  const nasUpdated = await fetchFromNas(`/dues/${id}`, "PUT", payment);
-  if (nasUpdated) {
-    return nasUpdated;
-  }
-  
-  // Fallback to localStorage
-  const duePayments = JSON.parse(localStorage.getItem("duePayments") || "[]");
-  const index = duePayments.findIndex((due: DuePayment) => due.id === id);
-  
-  if (index !== -1) {
-    duePayments[index] = { ...duePayments[index], ...payment };
-    localStorage.setItem("duePayments", JSON.stringify(duePayments));
-    return duePayments[index];
-  }
-  
-  return null;
-};
 
 // Backup/Restore functionality
 export const createBackup = async (): Promise<string | Blob> => {
@@ -890,4 +843,114 @@ export const resetLastId = async () => {
   localStorage.setItem("lastPurchaseId", lastPurchaseId.toString());
   
   return { lastSaleId, lastPurchaseId };
+};
+
+// store purchase data to suoabase
+export interface VehiclePurchase {
+  id?: number;
+  date: string;
+  party: string;
+  address: string;
+  phone: string;
+  remark: string;
+  model: string;
+  vehicleNo: string;
+  chassis: string;
+  price: number;
+  transportCost: number;
+  insurance: number;
+  finance: number;
+  repair: number;
+  penalty: number;
+  total: number;
+  photoUrl: string;
+  manual_id?: string; 
+  brokerage: number;
+  witness: string;
+  created_at?: string;
+}
+
+export const getPurchases = async (): Promise<VehiclePurchase[]> => {
+  try {
+    const { data, error } = await supabase
+      .from('purchases')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    return data || [];
+  } catch (error) {
+    console.error('Error fetching purchases:', error);
+    return [];
+  }
+};
+
+export const addPurchase = async (
+  purchase: Omit<VehiclePurchase, 'id'>
+): Promise<VehiclePurchase> => {
+  try {
+    // Map JavaScript camelCase to SQL snake_case
+    const supabasePurchase = {
+      date: purchase.date,
+      party: purchase.party,
+      address: purchase.address,
+      phone: purchase.phone,
+      remark: purchase.remark,
+      model: purchase.model,
+      vehicle_no: purchase.vehicleNo,  // Note snake_case
+      chassis: purchase.chassis,
+      price: purchase.price,
+      transport_cost: purchase.transportCost,
+      insurance: purchase.insurance,
+      finance: purchase.finance,
+      repair: purchase.repair,
+      penalty: purchase.penalty,
+      total: purchase.total,
+      photo_url: purchase.photoUrl,
+      manual_id: purchase.manualId,  // Changed to match DB column
+      brokerage: purchase.brokerage,
+      witness: purchase.witness
+    };
+
+    const { data, error } = await supabase
+      .from('purchases')
+      .insert([supabasePurchase])
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  } catch (error) {
+    console.error('Add purchase error:', error);
+    throw new Error(`Failed to add purchase: ${error.message}`);
+  }
+};
+export const updatePurchase = async (
+  purchase: VehiclePurchase
+): Promise<VehiclePurchase> => {
+  try {
+    const { data, error } = await supabase
+      .from('purchases')
+      .update(purchase)
+      .eq('id', purchase.id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  } catch (error) {
+    console.error('Error updating purchase:', error);
+    throw error;
+  }
+};
+
+export const deletePurchase = async (id: number): Promise<boolean> => {
+  try {
+    const { error } = await supabase.from('purchases').delete().eq('id', id);
+    if (error) throw error;
+    return true;
+  } catch (error) {
+    console.error('Error deleting purchase:', error);
+    return false;
+  }
 };
