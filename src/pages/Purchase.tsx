@@ -177,7 +177,6 @@ const Purchase = () => {
     if (!file) return;
   
     try {
-      // Validate file size
       if (file.size > 5 * 1024 * 1024) {
         throw new Error('File size exceeds 5MB limit');
       }
@@ -188,15 +187,20 @@ const Purchase = () => {
         duration: 3000,
       });
   
-      // Upload photo and get URL
       const photoUrl = await uploadPhoto(file, currentPurchase.id || Date.now());
   
-      // Update state with new photo
+      // Update both local state and database
+      const updatedPurchase = {
+        ...currentPurchase,
+        photoUrl
+      };
+  
+      if (currentPurchase.id) {
+        await updatePurchase(updatedPurchase as VehiclePurchase);
+      }
+  
       setPhotoPreview(photoUrl);
-      setCurrentPurchase(prev => ({
-        ...prev,
-        photoUrl,
-      }));
+      setCurrentPurchase(updatedPurchase);
   
       toast({
         title: "Success!",
@@ -223,21 +227,23 @@ const Purchase = () => {
         throw new Error("Party, Vehicle No, and Model are required");
       }
   
-      // Prepare data for saving
+      // Prepare data with proper types
       const purchaseToSave = {
         ...currentPurchase,
         price: Number(currentPurchase.price) || 0,
         transportCost: Number(currentPurchase.transportCost) || 0,
         brokerage: Number(currentPurchase.brokerage) || 0,
         total: Number(currentPurchase.total) || 0,
+        // Ensure all fields have values
         vehicleNo: currentPurchase.vehicleNo || '',
         model: currentPurchase.model || '',
-        address: currentPurchase.address || null,
-        phone: currentPurchase.phone || null,
-        remark: currentPurchase.remark || null,
-        chassis: currentPurchase.chassis || null,
-        manualId: currentPurchase.manualId || null,
-        witness: currentPurchase.witness || null
+        address: currentPurchase.address || '',
+        phone: currentPurchase.phone || '',
+        remark: currentPurchase.remark || '',
+        chassis: currentPurchase.chassis || '',
+        manualId: currentPurchase.manualId || '',
+        witness: currentPurchase.witness || '',
+        photoUrl: currentPurchase.photoUrl || ''
       };
   
       // Save to Supabase
@@ -260,6 +266,7 @@ const Purchase = () => {
       });
   
       setCurrentPurchase(savedPurchase);
+      setPhotoPreview(savedPurchase.photoUrl || null);
       
       toast({
         title: "Saved!",

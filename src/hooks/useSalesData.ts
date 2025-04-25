@@ -49,7 +49,7 @@ export const emptySale: Omit<VehicleSale, "id"> = {
   manualId: "",
   reminder: "00:00",
   rcBook: false,
-  installments: Array(18)
+  installments: Array(30)
     .fill(0)
     .map(() => ({
       date: "",
@@ -208,25 +208,71 @@ export const useSalesData = () => {
   };
 
   const handleSave = async () => {
-    console.log('Original sale data:', currentSale);
-    const supabaseData = vehicleSaleToSupabase(currentSale);
-    console.log('Data being sent to Supabase:', supabaseData);
-    
     try {
-      const { data, error } = await supabase
-        .from('vehicle_sales')
-        .insert(supabaseData)
-        .select();
+      // Ensure required fields
+      if (!currentSale.party) {
+        toast({ 
+          title: "Error", 
+          description: "Party name is required", 
+          variant: "destructive" 
+        });
+        return;
+      }
+
+      let updatedSales: VehicleSale[] = [...sales];
+      let savedSale: VehicleSale;
       
-      if (error) throw error;
-      return data;
+      // Check if we're updating an existing record or creating a new one
+      if (currentSale.id) {
+        // Update existing record
+        if (useSupabase) {
+          savedSale = await updateSupabaseSale(currentSale);
+        } else {
+          savedSale = { ...currentSale };
+          const existingIndex = sales.findIndex(sale => sale.id === currentSale.id);
+          
+          if (existingIndex >= 0) {
+            updatedSales[existingIndex] = savedSale;
+          } else {
+            console.error("Trying to update a record that doesn't exist in the array");
+            return;
+          }
+        }
+        
+        toast({ title: "Success", description: "Sale updated successfully" });
+      } else {
+        // Create new record
+        if (useSupabase) {
+          // For Supabase, we'll let the database generate the ID
+          const { id, ...saleWithoutId } = currentSale;
+          savedSale = await addSupabaseSale(saleWithoutId);
+        } else {
+          // For local storage, generate a simple ID
+          savedSale = { 
+            ...currentSale, 
+            id: Date.now() // Simple numeric ID based on timestamp
+          };
+          updatedSales = [savedSale, ...updatedSales];
+        }
+        
+        toast({ title: "Success", description: "New sale created successfully" });
+      }
+      
+      // If using local storage, save the updated array
+      if (!useSupabase) {
+        saveToLS(SALES_KEY, updatedSales);
+      }
+      
+      // Refresh the sales data
+      await fetchSales();
+      
     } catch (error) {
-      console.error('Full error details:', {
-        message: error.message,
-        code: error.code,
-        details: error.details
+      console.error("Error saving sale:", error);
+      toast({ 
+        title: "Error", 
+        description: "Failed to save sale data", 
+        variant: "destructive" 
       });
-      throw error;
     }
   };
 

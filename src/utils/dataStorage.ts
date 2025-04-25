@@ -864,7 +864,7 @@ export interface VehiclePurchase {
   penalty: number;
   total: number;
   photoUrl: string;
-  manual_id?: string; 
+  manualId?: string; 
   brokerage: number;
   witness: string;
   created_at?: string;
@@ -873,12 +873,34 @@ export interface VehiclePurchase {
 export const getPurchases = async (): Promise<VehiclePurchase[]> => {
   try {
     const { data, error } = await supabase
-      .from('purchases')
+      .from('purchases')  // Changed from 'vehicle_purchases' to 'purchases'
       .select('*')
       .order('created_at', { ascending: false });
 
     if (error) throw error;
-    return data || [];
+
+    return data.map(purchase => ({
+      id: purchase.id,
+      date: purchase.date,
+      party: purchase.party,
+      address: purchase.address,
+      phone: purchase.phone,
+      remark: purchase.remark,
+      model: purchase.model,
+      vehicleNo: purchase.vehicle_no,
+      chassis: purchase.chassis,
+      price: purchase.price,
+      transportCost: purchase.transport_cost,
+      insurance: purchase.insurance,
+      finance: purchase.finance,
+      repair: purchase.repair,
+      penalty: purchase.penalty,
+      total: purchase.total,
+      photoUrl: purchase.photo_url,
+      manualId: purchase.manual_id,
+      brokerage: purchase.brokerage,
+      witness: purchase.witness
+    }));
   } catch (error) {
     console.error('Error fetching purchases:', error);
     return [];
@@ -925,19 +947,65 @@ export const addPurchase = async (
     throw new Error(`Failed to add purchase: ${error.message}`);
   }
 };
+
 export const updatePurchase = async (
   purchase: VehiclePurchase
 ): Promise<VehiclePurchase> => {
   try {
+    // Map camelCase fields to snake_case for Supabase
+    const supabaseData = {
+      date: purchase.date,
+      party: purchase.party,
+      address: purchase.address,
+      phone: purchase.phone,
+      remark: purchase.remark,
+      model: purchase.model,
+      vehicle_no: purchase.vehicleNo,
+      chassis: purchase.chassis,
+      price: purchase.price,
+      transport_cost: purchase.transportCost,
+      insurance: purchase.insurance,
+      finance: purchase.finance,
+      repair: purchase.repair,
+      penalty: purchase.penalty,
+      total: purchase.total,
+      photo_url: purchase.photoUrl,
+      manual_id: purchase.manualId,  // This is the key issue - using snake_case here
+      brokerage: purchase.brokerage,
+      witness: purchase.witness
+    };
+
     const { data, error } = await supabase
       .from('purchases')
-      .update(purchase)
+      .update(supabaseData)
       .eq('id', purchase.id)
-      .select()
-      .single();
+      .select();
 
     if (error) throw error;
-    return data;
+
+    // Convert the response back to camelCase for frontend use
+    return {
+      id: data[0].id,
+      date: data[0].date,
+      party: data[0].party,
+      address: data[0].address,
+      phone: data[0].phone,
+      remark: data[0].remark,
+      model: data[0].model,
+      vehicleNo: data[0].vehicle_no,
+      chassis: data[0].chassis,
+      price: data[0].price,
+      transportCost: data[0].transport_cost,
+      insurance: data[0].insurance,
+      finance: data[0].finance,
+      repair: data[0].repair,
+      penalty: data[0].penalty,
+      total: data[0].total,
+      photoUrl: data[0].photo_url,
+      manualId: data[0].manual_id,
+      brokerage: data[0].brokerage,
+      witness: data[0].witness
+    };
   } catch (error) {
     console.error('Error updating purchase:', error);
     throw error;
