@@ -23,6 +23,7 @@ import { saveToBackup } from "@/utils/backupUtils";
 import { exportSalesToExcel } from "@/utils/excelStorage";
 import { supabase } from "@/integrations/supabase/client";
 
+
 export const emptySale: Omit<VehicleSale, "id"> = {
   date: format(new Date(), "yyyy-MM-dd"),
   party: "",
@@ -49,6 +50,7 @@ export const emptySale: Omit<VehicleSale, "id"> = {
   manualId: "",
   reminder: "00:00",
   rcBook: false,
+  remark_installment: "",
   installments: Array(30)
     .fill(0)
     .map(() => ({
@@ -59,6 +61,36 @@ export const emptySale: Omit<VehicleSale, "id"> = {
     })),
 };
 
+const normalizeInstallments = (sale) => {
+  if (!sale.installments || !Array.isArray(sale.installments)) {
+    // If no installments, create array with 30 empty installments
+    sale.installments = Array(30).fill(null).map(() => ({
+      date: "",
+      amount: 0,
+      paid: 0,
+      enabled: false
+    }));
+  } else {
+    // Ensure each installment has all required fields
+    sale.installments = sale.installments.map(inst => ({
+      date: inst.date || "",
+      amount: inst.amount || 0,
+      paid: inst.paid || 0,
+      enabled: Boolean(inst.enabled)
+    }));
+    
+    // Pad the array to 30 installments if needed
+    while (sale.installments.length < 30) {
+      sale.installments.push({
+        date: "",
+        amount: 0,
+        paid: 0,
+        enabled: false
+      });
+    }
+  }
+  return sale;
+};
 
 export const useSalesData = () => {
   const [currentSale, setCurrentSale] = useState<
@@ -92,16 +124,23 @@ export const useSalesData = () => {
         (currentSale.repair || 0) +
         (currentSale.penalty || 0);
 
-      const totalInstallments = currentSale.installments
-        .filter((inst) => inst.enabled)
-        .reduce((sum, inst) => sum + (inst.amount || 0), 0);
+        const installments = Array.isArray(currentSale.installments) 
+        ? currentSale.installments 
+        : emptySale.installments;
 
+      // Calculate total of enabled installments
+      const totalInstallments = installments
+        .filter(inst => Boolean(inst.enabled))
+        .reduce((sum, inst) => sum + (Number(inst.amount) || 0), 0);
+
+      // Calculate dueAmount as total minus totalInstallments
       const dueAmount = Math.max(0, total - totalInstallments);
 
-      setCurrentSale((prev) => ({
+      setCurrentSale(prev => ({
         ...prev,
         total,
         dueAmount,
+        installments: installments, // Ensure installments is part of the state
       }));
     }
   }, [
@@ -114,52 +153,45 @@ export const useSalesData = () => {
     currentSale.installments,
   ]);
 
-  const fetchSales = async () => {
+// Update the fetchSales function
+const fetchSales = async () => {
+  try {
+    let loadedSales: VehicleSale[];
+    
+    if (useSupabase) {
+      loadedSales = await getSupabaseSales();
+    } else {
+      loadedSales = await getSales();
+    }
+    
+    // Normalize installments for each sale
+    loadedSales = loadedSales.map(sale => normalizeInstallments(sale));
+    
+    setSales(loadedSales);
+    
+    if (loadedSales.length > 0) {
+      const firstSale = loadedSales[0];
+      setCurrentSale(firstSale);
+      setCurrentIndex(0);
+      setPhotoPreview(firstSale.photoUrl || null);
+    }
+  } catch (error) {
+    console.error("Error loading sales:", error);
+    toast({
+      title: "Error",
+      description: "Failed to load sales",
+      variant: "destructive",
+    });
+  }
+};
+
+  const saveToLS = (key, data) => {
     try {
-      let loadedSales: VehicleSale[];
-      
-      if (useSupabase) {
-        // Try to fetch from Supabase
-        try {
-          loadedSales = await getSupabaseSales();
-          console.log("Supabase sales loaded:", loadedSales);
-          toast({
-            title: "Success",
-            description: "Data loaded from Supabase successfully",
-          });
-        } catch (error) {
-          console.error("Error loading from Supabase:", error);
-          toast({
-            title: "Supabase Error",
-            description: "Falling back to local storage",
-            variant: "destructive",
-          });
-          // Fall back to local storage
-          loadedSales = await getSales();
-        }
-      } else {
-        // Use local storage
-        loadedSales = await getSales();
-      }
-      
-      setSales(loadedSales);
-      if (loadedSales.length > 0) {
-        const firstSale = loadedSales[0];
-        setCurrentSale({
-          ...firstSale,
-          manualId: firstSale.manualId || firstSale.id?.toString() || "",
-          installments: firstSale.installments || emptySale.installments,
-        });
-        setCurrentIndex(0);
-        setPhotoPreview(firstSale.photoUrl || null);
-      }
+      localStorage.setItem(key, JSON.stringify(data));
+      return true;
     } catch (error) {
-      console.error("Error loading sales:", error);
-      toast({
-        title: "Error",
-        description: "Failed to load sales",
-        variant: "destructive",
-      });
+      console.error(`Error saving to localStorage with key ${key}:`, error);
+      return false;
     }
   };
 
@@ -219,20 +251,24 @@ export const useSalesData = () => {
         return;
       }
 
+      // Make sure installments are properly structured before saving
+      const normalizedSale = normalizeInstallments({...currentSale});
+      
       let updatedSales: VehicleSale[] = [...sales];
       let savedSale: VehicleSale;
       
       // Check if we're updating an existing record or creating a new one
-      if (currentSale.id) {
+      if (normalizedSale.id) {
         // Update existing record
         if (useSupabase) {
-          savedSale = await updateSupabaseSale(currentSale);
+          savedSale = await updateSupabaseSale(normalizedSale);
         } else {
-          savedSale = { ...currentSale };
-          const existingIndex = sales.findIndex(sale => sale.id === currentSale.id);
+          savedSale = await updateSale(normalizedSale.id, normalizedSale);
+          const existingIndex = sales.findIndex(sale => sale.id === normalizedSale.id);
           
           if (existingIndex >= 0) {
             updatedSales[existingIndex] = savedSale;
+            setSales(updatedSales);
           } else {
             console.error("Trying to update a record that doesn't exist in the array");
             return;
@@ -244,26 +280,28 @@ export const useSalesData = () => {
         // Create new record
         if (useSupabase) {
           // For Supabase, we'll let the database generate the ID
-          const { id, ...saleWithoutId } = currentSale;
+          const { id, ...saleWithoutId } = normalizedSale;
           savedSale = await addSupabaseSale(saleWithoutId);
         } else {
           // For local storage, generate a simple ID
-          savedSale = { 
-            ...currentSale, 
-            id: Date.now() // Simple numeric ID based on timestamp
-          };
+          savedSale = await addSale({ 
+            ...normalizedSale, 
+            id: normalizedSale.id || Date.now() // Simple numeric ID based on timestamp
+          });
           updatedSales = [savedSale, ...updatedSales];
+          setSales(updatedSales);
         }
         
         toast({ title: "Success", description: "New sale created successfully" });
       }
       
-      // If using local storage, save the updated array
-      if (!useSupabase) {
-        saveToLS(SALES_KEY, updatedSales);
-      }
+      // Set the current sale to the saved version
+      setCurrentSale(savedSale);
       
-      // Refresh the sales data
+      // Also save to local backup if needed
+      // await saveToLocalStorage(savedSale); 
+      
+      // Refresh the sales data to ensure everything is updated
       await fetchSales();
       
     } catch (error) {
@@ -307,9 +345,10 @@ export const useSalesData = () => {
           setSales(updatedSales);
 
           if (updatedSales.length > 0) {
-            setCurrentSale(updatedSales[0]);
+            const firstSale = normalizeInstallments(updatedSales[0]);
+            setCurrentSale(firstSale);
             setCurrentIndex(0);
-            setPhotoPreview(updatedSales[0].photoUrl || null);
+            setPhotoPreview(firstSale.photoUrl || null);
           } else {
             handleNew();
           }
@@ -332,7 +371,7 @@ export const useSalesData = () => {
 
   const navigateFirst = () => {
     if (sales.length > 0) {
-      const firstSale = sales[0];
+      const firstSale = normalizeInstallments(sales[0]);
       setCurrentSale({
         ...firstSale,
         manualId: firstSale.manualId || firstSale.id?.toString() || "",
@@ -344,7 +383,7 @@ export const useSalesData = () => {
 
   const navigatePrev = () => {
     if (currentIndex > 0) {
-      const prevSale = sales[currentIndex - 1];
+      const prevSale = normalizeInstallments(sales[currentIndex - 1]);
       setCurrentSale({
         ...prevSale,
         manualId: prevSale.manualId || prevSale.id?.toString() || "",
@@ -356,7 +395,7 @@ export const useSalesData = () => {
 
   const navigateNext = () => {
     if (currentIndex < sales.length - 1) {
-      const nextSale = sales[currentIndex + 1];
+      const nextSale = normalizeInstallments(sales[currentIndex + 1]);
       setCurrentSale({
         ...nextSale,
         manualId: nextSale.manualId || nextSale.id?.toString() || "",
@@ -368,7 +407,7 @@ export const useSalesData = () => {
 
   const navigateLast = () => {
     if (sales.length > 0) {
-      const lastSale = sales[sales.length - 1];
+      const lastSale = normalizeInstallments(sales[sales.length - 1]);
       setCurrentSale({
         ...lastSale,
         manualId: lastSale.manualId || lastSale.id?.toString() || "",
@@ -402,7 +441,7 @@ export const useSalesData = () => {
       console.error("Error updating due payment:", error);
     }
   };
-
+  
   return {
     currentSale,
     setCurrentSale,

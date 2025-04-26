@@ -36,7 +36,8 @@ export interface VehicleSale {
   witnessAddress: string;
   witnessContact: string;
   witnessName2: string;
-  rcBook: boolean;
+  // rcBook: boolean;
+  remark_installment: string;
   installments: {
     date: string;
     amount: number;

@@ -28,7 +28,6 @@ import { VehicleSale } from "@/utils/dataStorage";
 
 const SEARCH_HISTORY_KEY = "salesSearchHistory";
 
-
 const getCurrentDate = () => {
   const today = new Date();
   return format(today, "dd/MM/yyyy");
@@ -52,6 +51,7 @@ const formatToInputDate = (dateString: string | undefined): string => {
   }
 };
 
+
 const Sales = () => {
   const {
     currentSale,
@@ -70,7 +70,7 @@ const Sales = () => {
     navigateNext,
     navigateLast,
     toggleSupabase,
-    // fetchSales,
+    fetchSales,
   } = useSalesData();
 
   const [showPhotoModal, setShowPhotoModal] = useState(false);
@@ -138,6 +138,10 @@ const Sales = () => {
         ...prev,
         [name]: (e.target as HTMLInputElement).checked,
       }));
+    }
+    // Make sure the input name matches the interface
+    else if (name === "remark_installment") {
+      setCurrentSale((prev) => ({ ...prev, remark_installment: value }));
     } else {
       setCurrentSale((prev) => ({ ...prev, [name]: value }));
     }
@@ -147,37 +151,57 @@ const Sales = () => {
     const { name, value } = e.target;
     setCurrentSale((prev) => ({ ...prev, [name]: value }));
   };
-  
 
-  const handleInstallmentChange = (
-    index: number,
-    field: string,
-    value: any
-  ) => {
-    const updatedInstallments = [...currentSale.installments];
-
-    if (field === "enabled") {
-      updatedInstallments[index] = {
-        ...updatedInstallments[index],
-        date: value ? getCurrentDate() : "",
-        amount: value ? updatedInstallments[index].amount || 0 : 0,
-        enabled: value,
+  const handleInstallmentChange = (index: number, field: string, value: any) => {
+    setCurrentSale(prev => {
+      const updatedInstallments = [...prev.installments];
+      
+      if (field === "enabled") {
+        // When checkbox is toggled, update enabled status
+        const isEnabled = Boolean(value);
+        updatedInstallments[index] = {
+          ...updatedInstallments[index],
+          // If enabling, set today's date if date is empty
+          date: isEnabled && !updatedInstallments[index].date ? 
+            getCurrentDate() : 
+            updatedInstallments[index].date,
+          // Keep existing amount when enabling
+          amount: updatedInstallments[index].amount || 0,
+          enabled: isEnabled,
+        };
+      } else if (field === "date") {
+        // For date inputs, convert YYYY-MM-DD to DD/MM/YYYY
+        if (value && typeof value === 'string' && value.includes('-')) {
+          const [year, month, day] = value.split('-');
+          const formattedDate = `${day}/${month}/${year}`;
+          updatedInstallments[index] = {
+            ...updatedInstallments[index],
+            date: formattedDate,
+          };
+        } else {
+          updatedInstallments[index] = {
+            ...updatedInstallments[index],
+            date: value || getCurrentDate(),
+          };
+        }
+      } else if (field === "amount") {
+        // Handle amount change - ensure numeric value
+        updatedInstallments[index] = {
+          ...updatedInstallments[index],
+          amount: value === "" ? 0 : parseFloat(value),
+        };
+      } else if (field === "paid") {
+        // Handle paid amount change
+        updatedInstallments[index] = {
+          ...updatedInstallments[index],
+          paid: value === "" ? 0 : parseFloat(value),
+        };
+      }
+      
+      return {
+        ...prev,
+        installments: updatedInstallments,
       };
-    } else if (field === "date") {
-      updatedInstallments[index] = {
-        ...updatedInstallments[index],
-        date: formatToDisplayDate(value), // Convert to display format
-      };
-    } else if (field === "amount") {
-      updatedInstallments[index] = {
-        ...updatedInstallments[index],
-        amount: value === "" ? 0 : parseFloat(value),
-      };
-    }
-
-    setCurrentSale({
-      ...currentSale,
-      installments: updatedInstallments,
     });
   };
 
@@ -200,23 +224,45 @@ const Sales = () => {
     photoInputRef.current?.click();
   };
 
-  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      if (event.target?.result) {
-        setPhotoPreview(event.target.result as string);
-        setCurrentSale((prev) => ({
-          ...prev,
-          photoUrl: event.target?.result as string,
-        }));
-      }
-    };
-    reader.readAsDataURL(file);
-  };
+    try {
+      const formData = new FormData();
+      formData.append("image", file);
 
+      // Remove the vehicleNo from the form data since we're not using it anymore
+      // formData.append('vehicleNo', vehicle_no); // Remove this line
+
+      const response = await fetch('http://192.168.2.7:8080/api/server.php', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) throw new Error("Upload failed");
+
+      const data = await response.json();
+
+      setPhotoPreview(data.imageUrl);
+      setCurrentSale((prev) => ({
+        ...prev,
+        photoUrl: data.imageUrl,
+      }));
+
+      toast({
+        title: "Success",
+        description: "Image uploaded successfully",
+      });
+    } catch (error) {
+      console.error("Error uploading image:", error);
+      toast({
+        title: "Error",
+        description: "Failed to upload image",
+        variant: "destructive",
+      });
+    }
+  };
   const handleExportToExcel = () => {
     try {
       const wb = XLSX.utils.book_new();
@@ -306,9 +352,9 @@ const Sales = () => {
 
   const handleSearch = () => {
     if (!searchQuery.trim()) return;
-  
+
     addToSearchHistory(searchQuery);
-  
+
     const searchLower = searchQuery.toLowerCase();
     const results = sales.filter(
       (sale) =>
@@ -318,17 +364,17 @@ const Sales = () => {
         sale.model?.toLowerCase().includes(searchLower) ||
         sale.chassis?.toLowerCase().includes(searchLower) ||
         sale.address?.toLowerCase().includes(searchLower) ||
-        sale.remark?.toLowerCase().includes(searchLower)
+        sale.remark?.toLowerCase().includes(searchLower) ||
+        sale.witness?.toLowerCase().includes(searchLower) ||
+        sale.remark_installment?.toLowerCase().includes(searchLower)
     );
-  
+
     setSearchResults(results);
     setShowSearchResults(results.length > 0);
-  
+
     if (results.length > 0) {
       const foundSale = results[0];
-      const saleIndex = sales.findIndex(
-        (p) => p.id === foundSale.id
-      );
+      const saleIndex = sales.findIndex((p) => p.id === foundSale.id);
       setCurrentSale(foundSale);
       setCurrentIndex(saleIndex);
       setPhotoPreview(foundSale.photoUrl || null);
@@ -543,7 +589,7 @@ const Sales = () => {
           <div className="grid grid-cols-2 gap-4">
             {/* Basic Info */}
             <div>
-              <div className="mb-4">
+              <div className="mb-2 w-[140%]">
                 <div className="space-y-2">
                   <div className="flex">
                     <label
@@ -596,17 +642,7 @@ const Sales = () => {
               </div>
 
               {/* Party Details */}
-              <div className="mb-4">
-                <h3
-                  className="mb-2"
-                  style={{
-                    backgroundColor: labelColor,
-                    padding: "0px 4px",
-                    borderRadius: "4px",
-                  }}
-                >
-                  Party Details
-                </h3>
+              <div className="mb-2 w-[140%]">
                 <div className="space-y-2">
                   <div className="flex">
                     <label
@@ -666,7 +702,7 @@ const Sales = () => {
               </div>
 
               {/* Vehicle Details */}
-              <div className="mb-4">
+              <div className="mb-2 w-[140%]">
                 <div className="space-y-2">
                   <div className="flex">
                     <label
@@ -728,8 +764,8 @@ const Sales = () => {
 
             {/* Cost Details */}
             <div>
-              <div className="mb-4">
-                <div className="space-y-2">
+              <div className="mb-2">
+                <div className="space-y-2 mr-0 ml-auto w-64 flex flex-col items-left ">
                   <div className="flex">
                     <label
                       className="w-24"
@@ -796,7 +832,7 @@ const Sales = () => {
                         borderRadius: "4px",
                       }}
                     >
-                      Finance
+                      Finan
                     </label>
                     <Input
                       type="number"
@@ -834,7 +870,7 @@ const Sales = () => {
                         borderRadius: "4px",
                       }}
                     >
-                      Penalty
+                      Penalt
                     </label>
                     <Input
                       type="number"
@@ -867,8 +903,8 @@ const Sales = () => {
               </div>
 
               {/* Due Details */}
-              <div className="mb-4">
-                <div className="space-y-2">
+              <div className="mb-2">
+                <div className="space-y-2 mr-0 ml-auto w-64 flex flex-col items-left">
                   <div className="flex">
                     <label
                       className="w-36"
@@ -885,7 +921,7 @@ const Sales = () => {
                       name="dueAmount"
                       value={currentSale.dueAmount || ""}
                       onChange={handleInputChange}
-                      className="flex-1 text-2xl w-[75%]"
+                      className="flex-1 text-2xl w-[100%]"
                       disabled
                     />
                   </div>
@@ -923,19 +959,32 @@ const Sales = () => {
 
           {/* Installments */}
           <div className="mb-4">
-            <h3
-              className="mb-2"
-              style={{
-                backgroundColor: labelColor,
-                padding: "0px 4px",
-                borderRadius: "4px",
-              }}
-            >
-              Installments
-            </h3>
+            {/* Remarks */}
+            <div className="flex w-full">
+              <h3
+                className="mb-2"
+                style={{
+                  backgroundColor: labelColor,
+                  padding: "4px 4px",
+                  borderRadius: "4px",
+                }}
+              >
+                Remarks
+              </h3>
+              <div className="space-y-2 w-full">
+                <div className="flex flex-1 text-2xl">
+                  <Input
+                    name="remark_installment"
+                    value={currentSale.remark_installment || ""}
+                    onChange={handleInputChange}
+                    className="flex-1 text-2xl"
+                  />
+                </div>
+              </div>
+            </div>
             <div className="grid grid-cols-2 gap-2">
               {currentSale.installments
-                .slice(0, 10)
+                .slice(0, 12)
                 .map((installment, index) => (
                   <div key={index} className="flex items-center gap-2">
                     <div className="flex-1 text-2xl">
@@ -1137,7 +1186,7 @@ const Sales = () => {
           {/* Second set of installments */}
           <div className="grid grid-cols-2 gap-2 mt-4">
             {currentSale.installments
-              .slice(8, 20)
+              .slice(10, 20)
               .map((installment, index) => (
                 <div key={index} className="flex items-center gap-2">
                   <div className="flex-1 text-2xl">
