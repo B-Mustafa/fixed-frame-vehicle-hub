@@ -21,6 +21,7 @@ export const transformKeys = (obj: any, transform: (key: string) => string) => {
 
 // Convert vehicle sale to Supabase format
 export const vehicleSaleToSupabase = (sale: VehicleSale) => {
+  
   return {
     manual_id: sale.manualId,
     date: formatToInputDate(sale.date),
@@ -43,6 +44,14 @@ export const vehicleSaleToSupabase = (sale: VehicleSale) => {
     witness_address: sale.witnessAddress,
     witness_contact: sale.witnessContact,
     witness_name2: sale.witnessName2,
+    installments: sale.installments
+    .filter(inst => inst.enabled) // Only include enabled installments
+    .map(inst => ({
+      date: formatToInputDate(inst.date),
+      amount: inst.amount,
+      paid: inst.paid,
+      enabled: true // Explicitly set enabled
+    })),
     remark: sale.remark,
     photo_url: sale.photoUrl
   };
@@ -77,7 +86,7 @@ export const supabaseToVehicleSale = (
     witnessAddress: sale.witness_address || '',
     witnessContact: sale.witness_contact || '',
     witnessName2: sale.witness_name2 || '',
-    rcBook: sale.rcBook || false,
+    // rcBook: sale.rcBook || false,
     reminder: sale.reminder || '00:00',
     installments: Array.isArray(sale.installments)
       ? sale.installments

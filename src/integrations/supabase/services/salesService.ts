@@ -6,7 +6,9 @@ import {
   supabaseToVehicleSale,
 } from "../utils/transforms";
 import { format } from "date-fns";
-import { formatDate } from "date-fns";
+import * as XLSX from 'xlsx';
+import * as fs from 'fs';
+import * as path from 'path';
 
 const emptyInstallment = {
   date: "",
@@ -45,37 +47,190 @@ const formatDateForSupabase = (dateString: string): string => {
   }
 };
 
+// Global variable to store sales data from Excel if it's uploaded
+let excelSalesData: any[] | null = null;
+
+// Function to load Excel data from a specific file path (for Node.js environment)
+export const loadExcelDataFromPath = async (filePath: string): Promise<void> => {
+  try {
+    const workbook = XLSX.readFile(filePath);
+    const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+    excelSalesData = XLSX.utils.sheet_to_json(worksheet);
+    console.log('Excel data loaded successfully from path:', excelSalesData.length, 'records');
+    return Promise.resolve();
+  } catch (error) {
+    console.error('Error loading Excel file from path:', error);
+    return Promise.reject(error);
+  }
+};
+
+// Function to load Excel data from root folder
+export const loadExcelDataFromRoot = async (): Promise<void> => {
+  try {
+    // For browser environment - using fetch API to get the file from public folder
+    const response = await fetch('/sales_data.xlsx');
+    const arrayBuffer = await response.arrayBuffer();
+    const data = new Uint8Array(arrayBuffer);
+    const workbook = XLSX.read(data, { type: 'array' });
+    const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+    excelSalesData = XLSX.utils.sheet_to_json(worksheet);
+    console.log('Excel data loaded successfully from root:', excelSalesData.length, 'records');
+    return Promise.resolve();
+  } catch (error) {
+    console.error('Error loading Excel file from root:', error);
+    return Promise.reject(error);
+  }
+};
+
+// Function to load Excel data - should be called when Excel file is uploaded
+export const loadExcelData = (file: File): Promise<void> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+        excelSalesData = XLSX.utils.sheet_to_json(worksheet);
+        console.log('Excel data loaded successfully:', excelSalesData.length, 'records');
+        resolve();
+      } catch (error) {
+        console.error('Error parsing Excel file:', error);
+        reject(error);
+      }
+    };
+    
+    reader.onerror = (error) => {
+      console.error('FileReader error:', error);
+      reject(error);
+    };
+    
+    reader.readAsArrayBuffer(file);
+  });
+};
+
+// Function to check if sales_data.xlsx exists in the file system (Node.js environment)
+export const checkExcelFileExists = async (): Promise<boolean> => {
+  try {
+    if (typeof window !== 'undefined') {
+      // Browser environment - try to fetch the file
+      const response = await fetch('/sales_data.xlsx', { method: 'HEAD' });
+      return response.ok;
+    } else {
+      // Node.js environment
+      const filePath = path.join(process.cwd(), 'sales_data.xlsx');
+      return fs.existsSync(filePath);
+    }
+  } catch (error) {
+    console.error('Error checking if Excel file exists:', error);
+    return false;
+  }
+};
+
+// Helper function to read installments from loaded Excel data
+const getInstallmentsFromExcel = (manualId: string) => {
+  try {
+    if (!excelSalesData) {
+      console.log('No Excel data loaded. Using empty installments.');
+      return Array(30).fill({ ...emptyInstallment });
+    }
+
+    // Find the sale with matching manualId
+    const saleData = excelSalesData.find((item: any) => 
+      item.manualId?.toString() === manualId || 
+      item.manual_id?.toString() === manualId
+    );
+
+    if (!saleData) {
+      console.log(`Sale with manualId ${manualId} not found in Excel data.`);
+      return Array(30).fill({ ...emptyInstallment });
+    }
+
+    // Extract installments from the sale data
+    const installments = [];
+    for (let i = 1; i <= 30; i++) {
+      const date = saleData[`installment_${i}_date`];
+      const amount = saleData[`installment_${i}_amount`];
+      const paid = saleData[`installment_${i}_paid`];
+
+      if (date || amount) {
+        installments.push({
+          date: date || "",
+          amount: amount || 0,
+          paid: paid || 0,
+          enabled: Boolean(date && amount)
+        });
+      } else {
+        installments.push({ ...emptyInstallment });
+      }
+    }
+
+    return installments;
+  } catch (error) {
+    console.error("Error reading installments from Excel:", error);
+    return Array(30).fill({ ...emptyInstallment });
+  }
+};
+
+// Automatically attempt to load Excel data from the root folder when the module is imported
+const autoLoadExcelData = async () => {
+  const exists = await checkExcelFileExists();
+  if (exists) {
+    try {
+      await loadExcelDataFromRoot();
+    } catch (error) {
+      console.error('Error auto-loading Excel data:', error);
+    }
+  }
+};
+
+// Call the auto-load function
+if (typeof window !== 'undefined') {
+  // Only in browser environment
+  autoLoadExcelData();
+}
+
 export const getSupabaseSales = async (): Promise<VehicleSale[]> => {
   try {
-    const { data, error } = await supabase
-      .from("vehicle_sales")
-      .select("*, installments(*)");
+    // If Excel data is not loaded yet, try to load it
+    if (!excelSalesData) {
+      try {
+        const exists = await checkExcelFileExists();
+        if (exists) {
+          await loadExcelDataFromRoot();
+        }
+      } catch (error) {
+        console.error('Error loading Excel data in getSupabaseSales:', error);
+      }
+    }
+
+    const { data, error } = await supabase.from("vehicle_sales").select("* , installments(*)");
 
     if (error) throw error;
 
     return data.map((sale) => {
-      // Create a default array of 30 empty installments
-      const defaultInstallments = Array(30)
-        .fill(null)
-        .map(() => ({ ...emptyInstallment }));
-      
-      // If we have installments from the database, map them to our format
+      // Use database installments if available, otherwise try to get from Excel
+      let installments;
       if (sale.installments && sale.installments.length > 0) {
-        // For each installment from the database, update our default array
-        sale.installments.forEach((inst, index) => {
-          // Only update if the index is within our array
-          if (index < defaultInstallments.length) {
-            defaultInstallments[index] = {
-              date: inst.date || "",
-              amount: inst.amount || 0,
-              paid: inst.paid || 0,
-              enabled: Boolean(inst.enabled),
-            };
-          }
-        });
+        // If we have installments in the database, use those
+        installments = sale.installments.map((inst: any) => ({
+          date: inst.date || "",
+          amount: inst.amount || 0,
+          paid: inst.paid || 0,
+          enabled: inst.enabled || false
+        }));
+        
+        // Fill the rest with empty installments to ensure we have 30
+        while (installments.length < 30) {
+          installments.push({ ...emptyInstallment });
+        }
+      } else {
+        // Otherwise try to get from Excel data
+        installments = getInstallmentsFromExcel(sale.sale_id || sale.manual_id || "");
       }
-
-      const transformedSale: VehicleSale = {
+      
+      return {
         id: sale.id,
         manualId: sale.manual_id || "",
         date: sale.date || "",
@@ -101,9 +256,9 @@ export const getSupabaseSales = async (): Promise<VehicleSale[]> => {
         remark: sale.remark || "",
         photoUrl: sale.photo_url || "",
         remark_installment: sale.remark_installment || "",
-        installments: defaultInstallments,
+        installments: installments,
+        reminder: sale.reminder || "",
       };
-      return transformedSale;
     });
   } catch (error) {
     console.error("Error fetching sales:", error);
@@ -138,15 +293,16 @@ export const addSupabaseSale = async (
     }
 
     // Now insert the installments that are enabled
-    const enabledInstallments = sale.installments?.filter(inst => inst.enabled) || [];
-    
+    const enabledInstallments =
+      sale.installments?.filter((inst) => inst.enabled) || [];
+
     if (enabledInstallments.length > 0) {
-      const installmentsToInsert = enabledInstallments.map(inst => ({
+      const installmentsToInsert = enabledInstallments.map((inst) => ({
         sale_id: data.id,
         date: formatDateForSupabase(inst.date),
         amount: inst.amount || 0,
         paid: inst.paid || 0,
-        enabled: true
+        enabled: true,
       }));
 
       const { error: installmentError } = await supabase
@@ -226,15 +382,17 @@ export const updateSupabaseSale = async (
     }
 
     // Then insert only enabled installments
-    const enabledInstallments = sale.installments.filter(inst => inst.enabled);
-    
+    const enabledInstallments = sale.installments.filter(
+      (inst) => inst.enabled
+    );
+
     if (enabledInstallments.length > 0) {
-      const installmentsToInsert = enabledInstallments.map(inst => ({
+      const installmentsToInsert = enabledInstallments.map((inst) => ({
         sale_id: sale.id,
         date: formatDateForSupabase(inst.date),
         amount: inst.amount || 0,
         paid: inst.paid || 0,
-        enabled: true
+        enabled: true,
       }));
 
       const { error: installmentError } = await supabase

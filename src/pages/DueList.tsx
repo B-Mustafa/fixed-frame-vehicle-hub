@@ -35,18 +35,32 @@ const DueList = () => {
   const [filteredEntries, setFilteredEntries] = useState<DueEntry[]>([]);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
-  const [sortBy, setSortBy] = useState<string>("dueDate");
-  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+  const [sortBy, setSortBy] = useState<string>("pendingAmount");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [fromDate, setFromDate] = useState<string>("");
   const [toDate, setToDate] = useState<string>("");
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [checkedItems, setCheckedItems] = useState<Record<number, boolean>>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('dueListCheckedItems');
+      return saved ? JSON.parse(saved) : {};
+    }
+    return {};
+  });
 
   const { toast } = useToast();
+
+  // Load checked items from localStorage on component mount
+  useEffect(() => {
+    const savedCheckedItems = localStorage.getItem('dueListCheckedItems');
+    if (savedCheckedItems) {
+      setCheckedItems(JSON.parse(savedCheckedItems));
+    }
+  }, []);
 
   const loadDueDataFromSales = async () => {
     setIsLoading(true);
     try {
-      // Get sales data from Supabase
       const salesData = await getSupabaseSales();
   
       if (!salesData || salesData.length === 0) {
@@ -60,14 +74,12 @@ const DueList = () => {
         return;
       }
   
-      // Transform sales data to due entries
       const dueData: DueEntry[] = salesData
-        .filter((sale) => sale.dueAmount > 0) // Only include sales with pending amounts
+        .filter((sale) => sale.dueAmount > 0)
         .map((sale) => {
           const today = new Date();
           const dueDate = new Date(sale.dueDate || today);
   
-          // Find the latest payment from installments
           const lastPayment = (sale.installments || [])
             .filter((inst) => inst?.enabled && inst?.amount > 0)
             .sort((a, b) => 
@@ -76,7 +88,6 @@ const DueList = () => {
   
           let status: "pending" | "partial" | "overdue" = "pending";
   
-          // Determine status based on payment and due date
           if (sale.dueAmount === sale.total) {
             status = today > dueDate ? "overdue" : "pending";
           } else if (sale.dueAmount > 0) {
@@ -113,7 +124,7 @@ const DueList = () => {
       
       toast({
         title: "Error",
-        description: error.message || "Failed to load data from database",
+        description: error instanceof Error ? error.message : "Failed to load data from database",
         variant: "destructive",
       });
     } finally {
@@ -121,7 +132,6 @@ const DueList = () => {
     }
   };
 
-  // Load data on component mount
   useEffect(() => {
     loadDueDataFromSales();
   }, []);
@@ -129,12 +139,10 @@ const DueList = () => {
   useEffect(() => {
     let filtered = [...dueEntries];
     
-    // Apply status filter
     if (statusFilter !== "all") {
       filtered = filtered.filter(entry => entry.status === statusFilter);
     }
     
-    // Apply date range filter
     if (fromDate) {
       const fromDateObj = parseISO(fromDate);
       filtered = filtered.filter(entry => {
@@ -151,7 +159,6 @@ const DueList = () => {
       });
     }
     
-    // Apply search filter (corrected version)
     if (search.trim()) {
       const searchLower = search.toLowerCase();
       filtered = filtered.filter(entry => 
@@ -161,7 +168,6 @@ const DueList = () => {
       );
     }
     
-    // Apply sorting
     filtered.sort((a, b) => {
       let comparison = 0;
       
@@ -191,6 +197,35 @@ const DueList = () => {
     setFilteredEntries(filtered);
   }, [dueEntries, statusFilter, search, sortBy, sortOrder, fromDate, toDate]);
 
+  const handleCheckboxChange = (id: number, isChecked: boolean) => {
+    const updatedCheckedItems = {
+      ...checkedItems,
+      [id]: isChecked
+    };
+    
+    setCheckedItems(updatedCheckedItems);
+    localStorage.setItem('dueListCheckedItems', JSON.stringify(updatedCheckedItems));
+  };
+
+  const handleCheckAll = (isChecked: boolean) => {
+    const allChecked = filteredEntries.reduce((acc, entry) => {
+      acc[entry.id] = isChecked;
+      return acc;
+    }, {} as Record<number, boolean>);
+    
+    setCheckedItems(allChecked);
+    localStorage.setItem('dueListCheckedItems', JSON.stringify(allChecked));
+  };
+
+  const handleClearAllChecks = () => {
+    setCheckedItems({});
+    localStorage.removeItem('dueListCheckedItems');
+    toast({
+      title: "Cleared all selections",
+      variant: "default",
+    });
+  };
+
   const handleApplyDateFilter = () => {
     if (!fromDate && !toDate) {
       toast({
@@ -200,7 +235,6 @@ const DueList = () => {
       return;
     }
     
-    // Apply the date filters immediately to the current data
     let filtered = [...dueEntries];
     
     if (fromDate) {
@@ -222,7 +256,6 @@ const DueList = () => {
     setFilteredEntries(filtered);
   };
 
-  // Export due list to Excel
   const handleExportToExcel = () => {
     try {
       const dataToExport = filteredEntries.map((entry) => ({
@@ -237,6 +270,7 @@ const DueList = () => {
         "Last Payment Date": entry.lastPaymentDate || "N/A",
         Phone: entry.phone,
         Address: entry.address,
+        "Checked": checkedItems[entry.id] ? "Yes" : "No"
       }));
 
       const wb = XLSX.utils.book_new();
@@ -259,7 +293,6 @@ const DueList = () => {
     }
   };
 
-  // Reset all filters
   const handleResetFilters = () => {
     setStatusFilter("all");
     setSearch("");
@@ -269,7 +302,6 @@ const DueList = () => {
     setSortOrder("asc");
   };
 
-  // Get status badge color
   const getStatusBadgeColor = (status: string) => {
     switch (status) {
       case "pending":
@@ -298,6 +330,15 @@ const DueList = () => {
               <Download className="h-4 w-4 mr-2" />
               Export Excel
             </Button>
+            {Object.keys(checkedItems).length > 0 && (
+              <Button
+                variant="outline"
+                onClick={handleClearAllChecks}
+                className="bg-red-50 text-red-600"
+              >
+                Clear Checks ({Object.keys(checkedItems).length})
+              </Button>
+            )}
           </div>
         </div>
 
@@ -423,7 +464,10 @@ const DueList = () => {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">
-                    Paid
+                    <Checkbox 
+                      checked={filteredEntries.length > 0 && filteredEntries.every(entry => checkedItems[entry.id])}
+                      onCheckedChange={(checked) => handleCheckAll(!!checked)}
+                    />
                   </th>
                   <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">
                     ID
@@ -440,7 +484,6 @@ const DueList = () => {
                   <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">
                     Address
                   </th>
-                  {/* <th className="px-4 py-3 text-right text-sm font-medium text-gray-500">Total Amount</th> */}
                   <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">
                     Phone
                   </th>
@@ -459,7 +502,7 @@ const DueList = () => {
                 {isLoading ? (
                   <tr>
                     <td
-                      colSpan={7}
+                      colSpan={10}
                       className="px-4 py-8 text-center text-gray-500"
                     >
                       Loading due entries...
@@ -469,7 +512,10 @@ const DueList = () => {
                   filteredEntries.map((entry) => (
                     <tr key={entry.id} className="hover:bg-gray-50">
                       <td className="px-4 py-3 text-sm font-medium">
-                        <Checkbox />
+                        <Checkbox 
+                          checked={!!checkedItems[entry.id]}
+                          onCheckedChange={(checked) => handleCheckboxChange(entry.id, !!checked)}
+                        />
                       </td>
                       <td className="px-4 py-3 text-sm font-medium">
                         {entry.id}
@@ -483,7 +529,6 @@ const DueList = () => {
                       </td>
                       <td className="px-4 py-3 text-sm">{entry.address}</td>
                       <td className="px-4 py-3 text-sm">{entry.phone}</td>
-                      {/* <td className="px-4 py-3 text-sm text-right">{entry.totalAmount.toLocaleString()}</td> */}
                       <td className="px-4 py-3 text-sm text-right font-medium">
                         {entry.pendingAmount > 0 ? (
                           <span className="text-red-600">
@@ -511,7 +556,7 @@ const DueList = () => {
                 ) : (
                   <tr>
                     <td
-                      colSpan={7}
+                      colSpan={10}
                       className="px-4 py-8 text-center text-gray-500"
                     >
                       No due entries found matching the current filters

@@ -9,3 +9,68 @@ const SUPABASE_PUBLISHABLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiO
 // import { supabase } from "@/integrations/supabase/client";
 
 export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+
+async function processCSV(filePath) {
+  const sales = [];
+  
+  // First read the CSV file
+  fs.createReadStream(filePath)
+    .pipe(csv())
+    .on('data', (row) => sales.push(row))
+    .on('end', async () => {
+      console.log('CSV file successfully processed');
+      
+      // Process each sale
+      for (const sale of sales) {
+        try {
+          
+          // Process installments (assuming up to 30 installments)
+          const installmentsToInsert = [];
+          
+          for (let i = 1; i <= 30; i++) {
+            const dateField = `installment_date_${i}`;
+            const amountField = `installment_amount_${i}`;
+            const paidField = `installment_paid_${i}`;
+            
+            // Only add installment if it has a date and amount
+            if (sale[dateField] && sale[amountField]) {
+              installmentsToInsert.push({
+                sale_id: saleId,
+                date: formatDateForSupabase(sale[dateField]),
+                amount: parseFloat(sale[amountField]) || 0,
+                paid: parseFloat(sale[paidField]) || 0,
+                enabled: true
+              });
+            }
+          }
+          
+          // Batch insert all installments for this sale
+          if (installmentsToInsert.length > 0) {
+            const { error: installmentsError } = await supabase
+              .from('installments')
+              .insert(installmentsToInsert);
+            
+            if (installmentsError) throw installmentsError;
+          }
+          
+          console.log(`Processed sale ${saleId} with ${installmentsToInsert.length} installments`);
+        } catch (error) {
+          console.error('Error processing sale:', error);
+        }
+      }
+    });
+}
+
+// Helper function to format dates for Supabase
+function formatDateForSupabase(dateString) {
+  // Handle different date formats from CSV
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(dateString)) { // DD/MM/YYYY
+    const [day, month, year] = dateString.split('/');
+    return `${year}-${month}-${day}`;
+  }
+  // Add other formats as needed
+  return dateString; // Supabase can handle ISO format directly
+}
+
+// Run the script
+processCSV('sales_data.xlsx');

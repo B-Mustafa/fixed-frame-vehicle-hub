@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -7,8 +6,6 @@ import {
   addSale,
   updateSale,
   deleteSale,
-  getDuePayments,
-  updateDuePayment,
 } from "@/utils/dataStorage";
 import { format } from "date-fns";
 import {
@@ -20,9 +17,13 @@ import {
 } from "@/integrations/supabase/service";
 import { DuePayment } from "@/utils/dataStorage";
 import { saveToBackup } from "@/utils/backupUtils";
-import { exportSalesToExcel } from "@/utils/excelStorage";
+import {
+  exportSalesToExcel,
+  importSalesFromExcel,
+  saveSalesToExcel,
+} from "@/utils/excelStorage";
 import { supabase } from "@/integrations/supabase/client";
-
+import { formatToDisplayDate } from "@/utils/dateUtils";
 
 export const emptySale: Omit<VehicleSale, "id"> = {
   date: format(new Date(), "yyyy-MM-dd"),
@@ -64,34 +65,35 @@ export const emptySale: Omit<VehicleSale, "id"> = {
 const normalizeInstallments = (sale) => {
   if (!sale.installments || !Array.isArray(sale.installments)) {
     // If no installments, create array with 30 empty installments
-    sale.installments = Array(30).fill(null).map(() => ({
-      date: "",
-      amount: 0,
-      paid: 0,
-      enabled: false
-    }));
+    sale.installments = Array(30)
+      .fill(null)
+      .map(() => ({
+        date: "",
+        amount: 0,
+        paid: 0,
+        enabled: false,
+      }));
   } else {
     // Ensure each installment has all required fields
-    sale.installments = sale.installments.map(inst => ({
-      date: inst.date || "",
+    sale.installments = sale.installments.map((inst) => ({
+      date: inst.date || "", // Preserve existing date or set to empty string
       amount: inst.amount || 0,
       paid: inst.paid || 0,
-      enabled: Boolean(inst.enabled)
+      enabled: Boolean(inst.enabled),
     }));
-    
+
     // Pad the array to 30 installments if needed
     while (sale.installments.length < 30) {
       sale.installments.push({
         date: "",
         amount: 0,
         paid: 0,
-        enabled: false
+        enabled: false,
       });
     }
   }
   return sale;
 };
-
 export const useSalesData = () => {
   const [currentSale, setCurrentSale] = useState<
     VehicleSale | (Omit<VehicleSale, "id"> & { id?: number })
@@ -124,19 +126,19 @@ export const useSalesData = () => {
         (currentSale.repair || 0) +
         (currentSale.penalty || 0);
 
-        const installments = Array.isArray(currentSale.installments) 
-        ? currentSale.installments 
+      const installments = Array.isArray(currentSale.installments)
+        ? currentSale.installments
         : emptySale.installments;
 
       // Calculate total of enabled installments
       const totalInstallments = installments
-        .filter(inst => Boolean(inst.enabled))
+        .filter((inst) => Boolean(inst.enabled))
         .reduce((sum, inst) => sum + (Number(inst.amount) || 0), 0);
 
       // Calculate dueAmount as total minus totalInstallments
       const dueAmount = Math.max(0, total - totalInstallments);
 
-      setCurrentSale(prev => ({
+      setCurrentSale((prev) => ({
         ...prev,
         total,
         dueAmount,
@@ -153,37 +155,37 @@ export const useSalesData = () => {
     currentSale.installments,
   ]);
 
-// Update the fetchSales function
-const fetchSales = async () => {
-  try {
-    let loadedSales: VehicleSale[];
-    
-    if (useSupabase) {
-      loadedSales = await getSupabaseSales();
-    } else {
-      loadedSales = await getSales();
+  // Update the fetchSales function
+  const fetchSales = async () => {
+    try {
+      let loadedSales: VehicleSale[];
+
+      if (useSupabase) {
+        loadedSales = await getSupabaseSales();
+      } else {
+        loadedSales = await getSales();
+      }
+
+      // Normalize installments for each sale
+      loadedSales = loadedSales.map((sale) => normalizeInstallments(sale));
+
+      setSales(loadedSales);
+
+      if (loadedSales.length > 0) {
+        const firstSale = loadedSales[0];
+        setCurrentSale(firstSale);
+        setCurrentIndex(0);
+        setPhotoPreview(firstSale.photoUrl || null);
+      }
+    } catch (error) {
+      console.error("Error loading sales:", error);
+      toast({
+        title: "Error",
+        description: "Failed to load sales",
+        variant: "destructive",
+      });
     }
-    
-    // Normalize installments for each sale
-    loadedSales = loadedSales.map(sale => normalizeInstallments(sale));
-    
-    setSales(loadedSales);
-    
-    if (loadedSales.length > 0) {
-      const firstSale = loadedSales[0];
-      setCurrentSale(firstSale);
-      setCurrentIndex(0);
-      setPhotoPreview(firstSale.photoUrl || null);
-    }
-  } catch (error) {
-    console.error("Error loading sales:", error);
-    toast({
-      title: "Error",
-      description: "Failed to load sales",
-      variant: "destructive",
-    });
-  }
-};
+  };
 
   const saveToLS = (key, data) => {
     try {
@@ -198,36 +200,41 @@ const fetchSales = async () => {
   const saveToLocalStorage = async (sale: VehicleSale) => {
     try {
       // Save the image to the local 'data' folder if it exists
-      if (sale.photoUrl && sale.photoUrl.startsWith('data:')) {
-        const imageFileName = `sales_${sale.vehicleNo?.replace(/\s+/g, '_') || sale.id}`;
+      if (sale.photoUrl && sale.photoUrl.startsWith("data:")) {
+        const imageFileName = `sales_${
+          sale.vehicleNo?.replace(/\s+/g, "_") || sale.id
+        }`;
         const saved = await saveToBackup(sale.photoUrl, imageFileName, "image");
-        
+
         if (saved) {
           console.log(`Image saved as ${imageFileName}`);
         }
       }
-      
+
       // Create a flattened object for Excel export with installments as separate fields
       const flattenedSale = { ...sale };
-      
+
       // Convert installments array to individual fields
       if (sale.installments && Array.isArray(sale.installments)) {
         sale.installments.forEach((installment, index) => {
           if (installment.enabled) {
             (flattenedSale as any)[`instl${index + 1}_date`] = installment.date;
-            (flattenedSale as any)[`instl${index + 1}_amount`] = installment.amount;
+            (flattenedSale as any)[`instl${index + 1}_amount`] =
+              installment.amount;
             (flattenedSale as any)[`instl${index + 1}_paid`] = installment.paid;
           }
         });
       }
-      
+
       // Delete the array from the flattened object to avoid duplication
       delete (flattenedSale as any).installments;
-      
+
       // Save the sale data as Excel in the 'data' folder
-      const excelFileName = `sale_data_${sale.vehicleNo?.replace(/\s+/g, '_') || sale.id}`;
+      const excelFileName = `sale_data_${
+        sale.vehicleNo?.replace(/\s+/g, "_") || sale.id
+      }`;
       const saved = await saveToBackup(flattenedSale, excelFileName, "excel");
-      
+
       if (saved) {
         console.log(`Sale data saved as ${excelFileName}.xlsx`);
         return true;
@@ -239,77 +246,192 @@ const fetchSales = async () => {
     }
   };
 
+  // Update the handleImportFromFile function in SalesNavigation
+  // In the handleImportFromFile function
+  const handleImportFromFile = async (file: File) => {
+    try {
+      const importedSales = await importSalesFromExcel(file);
+
+      if (importedSales.length > 0) {
+        // Process each imported sale
+        for (const sale of importedSales) {
+          // Normalize the dates from Excel format
+          const normalizedSale = {
+            ...sale,
+            installments: sale.installments.map((inst) => ({
+              ...inst,
+              date: inst.date ? formatToDisplayDate(inst.date) : "", // Convert Excel date to display format
+              enabled: Boolean(inst.enabled),
+            })),
+          };
+
+          if (useSupabase) {
+            await addSupabaseSale(normalizedSale);
+          } else {
+            await addSale(normalizedSale);
+          }
+        }
+
+        await fetchSales();
+        toast({
+          title: "Import Successful",
+          description: `Imported ${importedSales.length} sales records`,
+        });
+      }
+    } catch (error) {
+      // Error handling
+      console.error("Error importing sales from file:", error);
+      toast({
+        title: "Import Error",
+        description: `Failed to import sales: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`,
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleSave = async () => {
     try {
-      // Ensure required fields
+      // Existing validation
       if (!currentSale.party) {
-        toast({ 
-          title: "Error", 
-          description: "Party name is required", 
-          variant: "destructive" 
+        toast({
+          title: "Error",
+          description: "Party name is required",
+          variant: "destructive",
         });
         return;
       }
 
-      // Make sure installments are properly structured before saving
-      const normalizedSale = normalizeInstallments({...currentSale});
-      
-      let updatedSales: VehicleSale[] = [...sales];
-      let savedSale: VehicleSale;
-      
-      // Check if we're updating an existing record or creating a new one
+      // Normalize the sale data
+      const normalizedSale = normalizeInstallments({ ...currentSale });
+
+      let savedSale;
+
+      console.log("Saving sale:", normalizedSale);
+
+      // 1. First save to Supabase/local storage
       if (normalizedSale.id) {
         // Update existing record
         if (useSupabase) {
           savedSale = await updateSupabaseSale(normalizedSale);
         } else {
           savedSale = await updateSale(normalizedSale.id, normalizedSale);
-          const existingIndex = sales.findIndex(sale => sale.id === normalizedSale.id);
-          
-          if (existingIndex >= 0) {
-            updatedSales[existingIndex] = savedSale;
-            setSales(updatedSales);
-          } else {
-            console.error("Trying to update a record that doesn't exist in the array");
-            return;
-          }
         }
-        
-        toast({ title: "Success", description: "Sale updated successfully" });
+        console.log("Updated existing sale:", savedSale);
       } else {
         // Create new record
         if (useSupabase) {
-          // For Supabase, we'll let the database generate the ID
+          // For new records, we should remove any undefined id before sending to API
           const { id, ...saleWithoutId } = normalizedSale;
           savedSale = await addSupabaseSale(saleWithoutId);
         } else {
-          // For local storage, generate a simple ID
-          savedSale = await addSale({ 
-            ...normalizedSale, 
-            id: normalizedSale.id || Date.now() // Simple numeric ID based on timestamp
+          savedSale = await addSale({
+            ...normalizedSale,
+            id: Date.now(), // Ensure we have a valid ID for local storage
           });
-          updatedSales = [savedSale, ...updatedSales];
-          setSales(updatedSales);
         }
-        
-        toast({ title: "Success", description: "New sale created successfully" });
+        console.log("Created new sale:", savedSale);
       }
-      
-      // Set the current sale to the saved version
+
+      // 2. Only after successful save, attempt Excel sync
+      let excelSyncSuccess = true;
+      try {
+        // Make sure we're using the saved sale with its correct ID for Excel sync
+        const excelSyncData = {
+          id: savedSale.id,
+          date: savedSale.date,
+          party: savedSale.party,
+          address: savedSale.address,
+          phone: savedSale.phone,
+          model: savedSale.model,
+          vehicleNo: savedSale.vehicleNo,
+          chassis: savedSale.chassis,
+          price: Number(savedSale.price) || 0,
+          transportCost: Number(savedSale.transportCost) || 0,
+          insurance: Number(savedSale.insurance) || 0,
+          finance: Number(savedSale.finance) || 0,
+          repair: Number(savedSale.repair) || 0,
+          penalty: Number(savedSale.penalty) || 0,
+          total: Number(savedSale.total) || 0,
+          dueDate: savedSale.dueDate,
+          dueAmount: Number(savedSale.dueAmount) || 0,
+          witness: savedSale.witness,
+          witnessAddress: savedSale.witnessAddress,
+          witnessContact: savedSale.witnessContact,
+          witnessName2: savedSale.witnessName2,
+          remark: savedSale.remark,
+          photoUrl: savedSale.photoUrl, // Fixed typo: photUrl -> photoUrl
+          manualId: savedSale.manualId,
+          remark_installment: savedSale.remark_installment,
+          installments: Array.isArray(savedSale.installments)
+            ? savedSale.installments.map((inst) => ({
+                date: inst.date || "",
+                amount: Number(inst.amount) || 0,
+                paid: Number(inst.paid) || 0,
+                enabled: Boolean(inst.enabled),
+              }))
+            : [],
+        };
+
+        console.log("Sending Excel sync data:", excelSyncData);
+
+        // Make sure the request is properly formatted
+        const excelResponse = await fetch(
+          "http://localhost:3001/api/update-sales",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+            body: JSON.stringify(excelSyncData),
+          }
+        );
+
+        // Get the response data
+        const responseData = await excelResponse.json();
+
+        if (!excelResponse.ok) {
+          throw new Error(
+            responseData.error || responseData.message || "Excel sync failed"
+          );
+        }
+
+        console.log("Excel sync successful:", responseData);
+      } catch (excelError) {
+        console.error("Excel sync error:", excelError);
+        excelSyncSuccess = false;
+        toast({
+          title: "Warning",
+          description:
+            "Data saved but Excel sync failed: " +
+            (excelError instanceof Error
+              ? excelError.message
+              : "Unknown error"),
+          variant: "warning",
+        });
+      }
+
+      // 3. Update state with the saved sale data
       setCurrentSale(savedSale);
-      
-      // Also save to local backup if needed
-      // await saveToLocalStorage(savedSale); 
-      
-      // Refresh the sales data to ensure everything is updated
-      await fetchSales();
-      
+      await fetchSales(); // Refresh the sales list
+
+      toast({
+        title: "Success",
+        description:
+          `Sale ${normalizedSale.id ? "updated" : "created"} successfully` +
+          (excelSyncSuccess ? "" : " (Excel sync failed)"),
+        variant: excelSyncSuccess ? "default" : "warning",
+      });
     } catch (error) {
       console.error("Error saving sale:", error);
-      toast({ 
-        title: "Error", 
-        description: "Failed to save sale data", 
-        variant: "destructive" 
+      toast({
+        title: "Error",
+        description:
+          "Failed to save sale data: " +
+          (error instanceof Error ? error.message : "Unknown error"),
+        variant: "destructive",
       });
     }
   };
@@ -331,7 +453,7 @@ const fetchSales = async () => {
     if (window.confirm("Are you sure you want to delete this sale?")) {
       try {
         let deleted;
-        
+
         if (useSupabase) {
           // Use Supabase
           deleted = await deleteSupabaseSale(currentSale.id);
@@ -423,8 +545,8 @@ const fetchSales = async () => {
     localStorage.setItem("useSupabase", newValue.toString());
     toast({
       title: newValue ? "Supabase Mode" : "Local Storage Mode",
-      description: newValue 
-        ? "Switched to Supabase cloud storage mode" 
+      description: newValue
+        ? "Switched to Supabase cloud storage mode"
         : "Switched to local storage mode",
     });
     // Call fetchSales after toggling the storage mode to refresh data
@@ -434,14 +556,14 @@ const fetchSales = async () => {
   const updateDuePaymentFn = async (payment: DuePayment) => {
     try {
       // Use the correct function with id parameter
-      await import("@/utils/dataStorage").then(
-        ({ updateDuePayment }) => updateDuePayment(payment.id, payment)
+      await import("@/utils/dataStorage").then(({ updateDuePayment }) =>
+        updateDuePayment(payment.id, payment)
       );
     } catch (error) {
       console.error("Error updating due payment:", error);
     }
   };
-  
+
   return {
     currentSale,
     setCurrentSale,
@@ -460,6 +582,7 @@ const fetchSales = async () => {
     navigateNext,
     navigateLast,
     toggleSupabase,
+    handleImportFromFile,
     fetchSales,
   };
 };

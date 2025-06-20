@@ -84,6 +84,12 @@
   }
 }
 
+mark.bg-yellow-300 {
+  background-color: #fde047;
+  color: inherit;
+  padding: 0;
+  border-radius: 0.25rem;
+}
 .bg-app-blue {
   background-color: #0078ff;
 }

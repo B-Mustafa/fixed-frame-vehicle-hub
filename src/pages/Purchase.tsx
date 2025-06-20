@@ -29,6 +29,7 @@ import * as XLSX from "xlsx";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ImagePreviewModal from "@/components/ImagePreviewModal";
 import { deletePhoto, uploadPhoto } from "@/utils/photoStorage";
+import HighlightInput from "@/components/HighlightInput";
 
 const emptyPurchase: Omit<VehiclePurchase, "id"> = {
   date: format(new Date(), "yyyy-MM-dd"),
@@ -50,6 +51,7 @@ const emptyPurchase: Omit<VehiclePurchase, "id"> = {
   manualId: "",
   brokerage: 0,
   witness: "",
+  witnessphone: "",
 };
 
 const SEARCH_HISTORY_KEY = "purchaseSearchHistory";
@@ -73,7 +75,73 @@ const Purchase = () => {
   const printRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
+  const [currentSearchIndex, setCurrentSearchIndex] = useState(0);
 
+  // Add keyboard event listener for search navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Only process if we have search results
+      if (searchResults.length > 0) {
+        // Ctrl+Enter for next search result
+        if (e.key === "Enter" && e.ctrlKey && !e.altKey) {
+          e.preventDefault();
+          navigateToNextSearchResult();
+        }
+        // Alt+Enter for previous search result
+        else if (e.key === "Enter" && e.altKey && !e.ctrlKey) {
+          e.preventDefault();
+          navigateToPrevSearchResult();
+        }
+      }
+    };
+
+    // Add event listener
+    window.addEventListener("keydown", handleKeyDown);
+
+    // Clean up
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [searchResults, currentSearchIndex]);
+
+  // Navigate to next search result
+  const navigateToNextSearchResult = () => {
+    if (searchResults.length === 0) return;
+
+    const nextIndex = (currentSearchIndex + 1) % searchResults.length;
+    setCurrentSearchIndex(nextIndex);
+
+    const foundSale = searchResults[nextIndex];
+    const saleIndex = purchases.findIndex((p) => p.id === foundSale.id);
+    setCurrentPurchase(foundSale);
+    setCurrentIndex(saleIndex);
+    setPhotoPreview(foundSale.photoUrl || null);
+
+    toast({
+      title: "Search Navigation",
+      description: `Showing result ${nextIndex + 1} of ${searchResults.length}`,
+    });
+  };
+
+  // Navigate to previous search result
+  const navigateToPrevSearchResult = () => {
+    if (searchResults.length === 0) return;
+
+    const prevIndex =
+      (currentSearchIndex - 1 + searchResults.length) % searchResults.length;
+    setCurrentSearchIndex(prevIndex);
+
+    const foundSale = searchResults[prevIndex];
+    const saleIndex = purchases.findIndex((p) => p.id === foundSale.id);
+    setCurrentPurchase(foundSale);
+    setCurrentIndex(saleIndex);
+    setPhotoPreview(foundSale.photoUrl || null);
+
+    toast({
+      title: "Search Navigation",
+      description: `Showing result ${prevIndex + 1} of ${searchResults.length}`,
+    });
+  };
   // Load purchases and initialize state
   useEffect(() => {
     const fetchPurchases = async () => {
@@ -84,14 +152,20 @@ const Purchase = () => {
           const firstPurchase = loadedPurchases[0];
           const mappedPurchase = {
             ...firstPurchase,
-            manualId: firstPurchase.manualId || firstPurchase.id?.toString() || "",
+            manualId:
+              firstPurchase.manualId || firstPurchase.id?.toString() || "",
             vehicleNo: firstPurchase.vehicleNo || "",
             transportCost: firstPurchase.transportCost || 0,
             address: firstPurchase.address || "",
             phone: firstPurchase.phone || "",
             chassis: firstPurchase.chassis || "",
             remark: firstPurchase.remark || "",
-            witness: firstPurchase.witness || ""
+            witness: firstPurchase.witness || "",
+            witnessphone: firstPurchase.witnessphone || "",
+            price: firstPurchase.price || 0,
+            brokerage: firstPurchase.brokerage || 0,
+            transport_cost: firstPurchase.transportCost || 0,
+            total: firstPurchase.total || 0,
           };
           setCurrentPurchase(mappedPurchase);
           setCurrentIndex(0);
@@ -144,7 +218,11 @@ const Purchase = () => {
         total,
       }));
     }
-  }, [currentPurchase.price, currentPurchase.transportCost, currentPurchase.brokerage]);
+  }, [
+    currentPurchase.price,
+    currentPurchase.transportCost,
+    currentPurchase.brokerage,
+  ]);
 
   // Keyboard navigation
   useEffect(() => {
@@ -166,42 +244,59 @@ const Purchase = () => {
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value, type } = e.target;
-    setCurrentPurchase(prev => ({
+    setCurrentPurchase((prev) => ({
       ...prev,
-      [name]: type === "number" ? (value === "" ? 0 : parseFloat(value)) : value
+      [name]:
+        type === "number" ? (value === "" ? 0 : parseFloat(value)) : value,
     }));
   };
 
   const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-  
+
     try {
       if (file.size > 5 * 1024 * 1024) {
-        throw new Error('File size exceeds 5MB limit');
+        throw new Error("File size exceeds 5MB limit");
       }
-  
+
       toast({
         title: "Uploading photo...",
         description: "Please wait while we upload your photo",
         duration: 3000,
       });
-  
-      const photoUrl = await uploadPhoto(file, currentPurchase.id || Date.now());
-  
+
+      // Create FormData and upload to server
+      const formData = new FormData();
+      formData.append("image", file);
+
+      const uploadResponse = await fetch(
+        "http://localhost:3001/upload-purchase-image",
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
+
+      if (!uploadResponse.ok) {
+        throw new Error("Photo upload failed");
+      }
+
+      const { imageUrl } = await uploadResponse.json();
+
       // Update both local state and database
       const updatedPurchase = {
         ...currentPurchase,
-        photoUrl
+        photoUrl: imageUrl,
       };
-  
+
       if (currentPurchase.id) {
         await updatePurchase(updatedPurchase as VehiclePurchase);
       }
-  
-      setPhotoPreview(photoUrl);
+
+      setPhotoPreview(imageUrl);
       setCurrentPurchase(updatedPurchase);
-  
+
       toast({
         title: "Success!",
         description: "Photo uploaded successfully",
@@ -215,7 +310,7 @@ const Purchase = () => {
       });
     } finally {
       if (photoInputRef.current) {
-        photoInputRef.current.value = '';
+        photoInputRef.current.value = "";
       }
     }
   };
@@ -223,10 +318,14 @@ const Purchase = () => {
   const handleSave = async () => {
     try {
       // Validate required fields
-      if (!currentPurchase.party || !currentPurchase.vehicleNo || !currentPurchase.model) {
+      if (
+        !currentPurchase.party ||
+        !currentPurchase.vehicleNo ||
+        !currentPurchase.model
+      ) {
         throw new Error("Party, Vehicle No, and Model are required");
       }
-  
+
       // Prepare data with proper types
       const purchaseToSave = {
         ...currentPurchase,
@@ -234,18 +333,17 @@ const Purchase = () => {
         transportCost: Number(currentPurchase.transportCost) || 0,
         brokerage: Number(currentPurchase.brokerage) || 0,
         total: Number(currentPurchase.total) || 0,
-        // Ensure all fields have values
-        vehicleNo: currentPurchase.vehicleNo || '',
-        model: currentPurchase.model || '',
-        address: currentPurchase.address || '',
-        phone: currentPurchase.phone || '',
-        remark: currentPurchase.remark || '',
-        chassis: currentPurchase.chassis || '',
-        manualId: currentPurchase.manualId || '',
-        witness: currentPurchase.witness || '',
-        photoUrl: currentPurchase.photoUrl || ''
+        vehicleNo: currentPurchase.vehicleNo || "",
+        model: currentPurchase.model || "",
+        address: currentPurchase.address || "",
+        phone: currentPurchase.phone || "",
+        remark: currentPurchase.remark || "",
+        chassis: currentPurchase.chassis || "",
+        manualId: currentPurchase.manualId || "",
+        witness: currentPurchase.witness || "",
+        photoUrl: currentPurchase.photoUrl || "",
       };
-  
+
       // Save to Supabase
       let savedPurchase;
       if (currentPurchase.id) {
@@ -253,10 +351,29 @@ const Purchase = () => {
       } else {
         savedPurchase = await addPurchase(purchaseToSave);
       }
-  
+
+      // Also save to local Excel file via the server
+      try {
+        const excelResponse = await fetch(
+          "http://localhost:3001/api/update-purchase",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(savedPurchase),
+          }
+        );
+
+        if (!excelResponse.ok) {
+          throw new Error("Excel sync failed");
+        }
+      } catch (excelError) {
+        console.error("Excel synchronization error:", excelError);
+        throw new Error("Saved to database but failed to update Excel file");
+      }
+
       // Update local state
-      setPurchases(prev => {
-        const existingIndex = prev.findIndex(p => p.id === savedPurchase.id);
+      setPurchases((prev) => {
+        const existingIndex = prev.findIndex((p) => p.id === savedPurchase.id);
         if (existingIndex >= 0) {
           const updated = [...prev];
           updated[existingIndex] = savedPurchase;
@@ -264,24 +381,25 @@ const Purchase = () => {
         }
         return [...prev, savedPurchase];
       });
-  
+
       setCurrentPurchase(savedPurchase);
       setPhotoPreview(savedPurchase.photoUrl || null);
-      
+
       toast({
         title: "Saved!",
-        description: "Purchase saved successfully",
+        description: "Purchase saved successfully to both database and Excel",
       });
-  
     } catch (error) {
       console.error("Save error:", error);
       toast({
-        title: "Save Failed",
-        description: error.message.includes('violates')
+        title: error.message.includes("Excel")
+          ? "Partial Success"
+          : "Save Failed",
+        description: error.message.includes("violates")
           ? "Data validation error. Check all fields."
           : error.message,
-        variant: "destructive",
-        duration: 5000
+        variant: error.message.includes("Excel") ? "default" : "destructive",
+        duration: 5000,
       });
     }
   };
@@ -346,24 +464,39 @@ const Purchase = () => {
 
   const handleDelete = async () => {
     if (!currentPurchase.id) return;
-  
+
     if (window.confirm("Are you sure you want to delete this purchase?")) {
       try {
         // Delete photo if exists
         if (currentPurchase.photoUrl) {
           await deletePhoto(currentPurchase.photoUrl);
         }
-  
+
         // Delete record from Supabase
         const deleted = await deletePurchase(currentPurchase.id);
-  
+
         if (deleted) {
+          // Also delete from Excel (you'll need to implement this endpoint on the server)
+          try {
+            await fetch(
+              `http://localhost:3001/api/delete-purchase/${currentPurchase.id}`,
+              {
+                method: "DELETE",
+              }
+            );
+          } catch (excelError) {
+            console.error("Excel deletion error:", excelError);
+            throw new Error(
+              "Deleted from database but failed to remove from Excel"
+            );
+          }
+
           // Update local state
           const updatedPurchases = purchases.filter(
             (p) => p.id !== currentPurchase.id
           );
           setPurchases(updatedPurchases);
-  
+
           if (updatedPurchases.length > 0) {
             setCurrentPurchase(updatedPurchases[0]);
             setCurrentIndex(0);
@@ -371,18 +504,21 @@ const Purchase = () => {
           } else {
             handleNew();
           }
-  
+
           toast({
             title: "Purchase Deleted",
-            description: "The purchase has been deleted successfully.",
+            description:
+              "The purchase has been deleted from both database and Excel",
           });
         }
       } catch (error) {
         console.error("Error deleting purchase:", error);
         toast({
-          title: "Error",
-          description: "Failed to delete purchase",
-          variant: "destructive",
+          title: error.message.includes("Excel") ? "Partial Success" : "Error",
+          description: error.message.includes("Excel")
+            ? error.message
+            : "Failed to delete purchase",
+          variant: error.message.includes("Excel") ? "default" : "destructive",
         });
       }
     }
@@ -499,7 +635,9 @@ const Purchase = () => {
                 }
               </div>
               <div class="print-field">
-                <span class="print-label">Phone:</span> ${currentPurchase.phone || ""}
+                <span class="print-label">Phone:</span> ${
+                  currentPurchase.phone || ""
+                }
               </div>
               <div class="print-field">
                 <span class="print-label">Model:</span> ${currentPurchase.model}
@@ -525,7 +663,9 @@ const Purchase = () => {
           </div>
           
           <div class="print-field">
-            <span class="print-label">Price:</span> ${currentPurchase.price || 0}
+            <span class="print-label">Price:</span> ${
+              currentPurchase.price || 0
+            }
           </div>
           <div class="print-field">
             <span class="print-label">Transport Cost:</span> ${
@@ -533,7 +673,9 @@ const Purchase = () => {
             }
           </div>
           <div class="print-field">
-            <span class="print-label">Brokerage:</span> ${currentPurchase.brokerage || 0}
+            <span class="print-label">Brokerage:</span> ${
+              currentPurchase.brokerage || 0
+            }
           </div>
           <div class="print-field">
             <span class="print-label">Total Amount:</span> ${
@@ -542,7 +684,19 @@ const Purchase = () => {
           </div>
           
           <div class="print-field">
-            <span class="print-label">Remarks:</span> ${currentPurchase.remark || ""}
+            <span class="print-label">Remarks:</span> ${
+              currentPurchase.remark || ""
+            }
+          </div>
+          <div class="print-field">
+            <span class="print-label">Witness:</span> ${
+              currentPurchase.witness || ""
+            }
+          </div>
+          <div class="print-field">
+            <span class="print-label">Witness Phone:</span> ${
+              currentPurchase.witnessphone || ""
+            }
           </div>
         </body>
       </html>
@@ -581,6 +735,8 @@ const Purchase = () => {
         "Transport Cost": purchase.transportCost,
         Total: purchase.total,
         Photo: purchase.photoUrl || "",
+        Brokerage: purchase.brokerage,
+        witnessphone: purchase.witnessphone,
       }));
 
       const wb = XLSX.utils.book_new();
@@ -630,7 +786,8 @@ const Purchase = () => {
             vehicleNo: row["Vehicle No"] || row.VehicleNo || "",
             chassis: row.Chassis || "",
             price: Number(row.Price) || 0,
-            transportCost: Number(row["Transport Cost"] || row.TransportCost) || 0,
+            transportCost:
+              Number(row["Transport Cost"] || row.TransportCost) || 0,
             insurance: Number(row.Insurance) || 0,
             finance: Number(row.Finance) || 0,
             repair: Number(row.Repair) || 0,
@@ -640,10 +797,13 @@ const Purchase = () => {
             brokerage: Number(row.Brokerage) || 0,
             manualId: row.ID?.toString() || "",
             witness: row.Witness || "",
+            witnessphone: row.witnessphone || "",
           })
         );
 
-        if (window.confirm(`Import ${importedPurchases.length} purchase records?`)) {
+        if (
+          window.confirm(`Import ${importedPurchases.length} purchase records?`)
+        ) {
           const saveImportedPurchases = async () => {
             let successCount = 0;
             let failCount = 0;
@@ -679,7 +839,8 @@ const Purchase = () => {
         console.error("Error parsing import file:", error);
         toast({
           title: "Import Failed",
-          description: "Failed to parse the import file. Please check the file format.",
+          description:
+            "Failed to parse the import file. Please check the file format.",
           variant: "destructive",
         });
       }
@@ -704,22 +865,51 @@ const Purchase = () => {
       {/* Navigation and search section */}
       <div className="flex flex-wrap items-center justify-between mb-4 gap-2 sticky top-0 z-10 pb-2">
         <div className="flex items-center gap-2 flex-wrap">
-          <Button variant="outline" onClick={navigateFirst} disabled={purchases.length === 0 || currentIndex === 0} size="sm">
+          <Button
+            variant="outline"
+            onClick={navigateFirst}
+            disabled={purchases.length === 0 || currentIndex === 0}
+            size="sm"
+          >
             First
           </Button>
-          <Button variant="outline" onClick={navigatePrev} disabled={purchases.length === 0 || currentIndex <= 0} size="sm">
+          <Button
+            variant="outline"
+            onClick={navigatePrev}
+            disabled={purchases.length === 0 || currentIndex <= 0}
+            size="sm"
+          >
             Prev
           </Button>
-          <Button variant="outline" onClick={navigateNext} disabled={purchases.length === 0 || currentIndex >= purchases.length - 1} size="sm">
+          <Button
+            variant="outline"
+            onClick={navigateNext}
+            disabled={
+              purchases.length === 0 || currentIndex >= purchases.length - 1
+            }
+            size="sm"
+          >
             Next
           </Button>
-          <Button variant="outline" onClick={navigateLast} disabled={purchases.length === 0 || currentIndex === purchases.length - 1} size="sm">
+          <Button
+            variant="outline"
+            onClick={navigateLast}
+            disabled={
+              purchases.length === 0 || currentIndex === purchases.length - 1
+            }
+            size="sm"
+          >
             Last
           </Button>
           <Button variant="outline" onClick={handleNew} size="sm">
             Add
           </Button>
-          <Button variant="outline" onClick={handleDelete} disabled={!currentPurchase.id} size="sm">
+          <Button
+            variant="outline"
+            onClick={handleDelete}
+            disabled={!currentPurchase.id}
+            size="sm"
+          >
             Del
           </Button>
           <Button variant="outline" onClick={handleSave} size="sm">
@@ -728,13 +918,14 @@ const Purchase = () => {
           <Button variant="outline" onClick={handlePrint} size="sm">
             <Printer className="h-4 w-4 mr-2" /> Print
           </Button>
-          <Button variant="outline" onClick={handleExportToExcel} className="bg-green-50" size="sm">
-            <FileDown className="h-4 w-4 mr-2" /> Export Excel
-          </Button>
-          <Button variant="outline" onClick={handleImportFromFile} className="bg-blue-50" size="sm">
-            <FileUp className="h-4 w-4 mr-2" /> Import
-          </Button>
-          <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".xlsx,.xls,.csv" style={{ display: "none" }} />
+          
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            accept=".xlsx,.xls,.csv"
+            style={{ display: "none" }}
+          />
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
@@ -742,19 +933,31 @@ const Purchase = () => {
             <PopoverTrigger asChild>
               <Button variant="outline" className="h-9 w-9 p-0">
                 <span className="sr-only">Color picker</span>
-                <div className="h-5 w-5 rounded-full border border-gray-300" style={{ backgroundColor: labelColor }} />
+                <div
+                  className="h-5 w-5 rounded-full border border-gray-300"
+                  style={{ backgroundColor: labelColor }}
+                />
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-64">
               <div className="space-y-2">
                 <h4 className="font-medium text-sm">Label Background Color</h4>
-                <Input type="color" value={labelColor} name="labelColor" onChange={handleInputChange} className="h-8 w-full" />
+                <Input
+                  type="color"
+                  value={labelColor}
+                  name="labelColor"
+                  onChange={handleInputChange}
+                  className="h-8 w-full"
+                />
               </div>
             </PopoverContent>
           </Popover>
 
           <div className="flex relative">
-            <Popover open={showSearchResults && searchResults.length > 0} onOpenChange={setShowSearchResults}>
+            <Popover
+              open={showSearchResults && searchResults.length > 0}
+              onOpenChange={setShowSearchResults}
+            >
               <div className="flex items-center">
                 <div className="relative flex w-full items-center">
                   <Input
@@ -762,15 +965,25 @@ const Purchase = () => {
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="w-[200px] sm:min-w-[270px] pr-8"
-                    onKeyDown={(e) => { if (e.key === "Enter") handleSearch() }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleSearch();
+                    }}
                   />
                   {searchQuery && (
-                    <button className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600" onClick={handleClearSearch}>
+                    <button
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      onClick={handleClearSearch}
+                    >
                       <X className="h-4 w-4" />
                     </button>
                   )}
                 </div>
-                <Button variant="outline" onClick={handleSearch} className="ml-1" size="sm">
+                <Button
+                  variant="outline"
+                  onClick={handleSearch}
+                  className="ml-1"
+                  size="sm"
+                >
                   <Search className="h-4 w-4" />
                 </Button>
 
@@ -784,20 +997,31 @@ const Purchase = () => {
                     <div className="max-h-[300px] overflow-y-auto py-2">
                       <div className="flex items-center justify-between px-3 py-1.5">
                         <h4 className="text-sm font-medium">Search History</h4>
-                        <button className="text-xs text-gray-500 hover:text-gray-900" onClick={() => { setSearchHistory([]); localStorage.removeItem(SEARCH_HISTORY_KEY); }}>
+                        <button
+                          className="text-xs text-gray-500 hover:text-gray-900"
+                          onClick={() => {
+                            setSearchHistory([]);
+                            localStorage.removeItem(SEARCH_HISTORY_KEY);
+                          }}
+                        >
                           Clear All
                         </button>
                       </div>
                       {searchHistory.length > 0 ? (
                         <div className="mt-1">
                           {searchHistory.map((item, index) => (
-                            <div key={index} className="flex items-center justify-between px-3 py-2 hover:bg-gray-100">
+                            <div
+                              key={index}
+                              className="flex items-center justify-between px-3 py-2 hover:bg-gray-100"
+                            >
                               <button
                                 className="flex w-full text-left text-sm"
                                 onClick={() => {
                                   setSearchQuery(item.query);
                                   setShowSearchResults(false);
-                                  setTimeout(() => { handleSearch() }, 100);
+                                  setTimeout(() => {
+                                    handleSearch();
+                                  }, 100);
                                 }}
                               >
                                 <span className="flex items-center">
@@ -808,9 +1032,14 @@ const Purchase = () => {
                               <button
                                 className="ml-2 text-gray-400 hover:text-gray-600"
                                 onClick={() => {
-                                  const newHistory = searchHistory.filter((_, i) => i !== index);
+                                  const newHistory = searchHistory.filter(
+                                    (_, i) => i !== index
+                                  );
                                   setSearchHistory(newHistory);
-                                  localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(newHistory));
+                                  localStorage.setItem(
+                                    SEARCH_HISTORY_KEY,
+                                    JSON.stringify(newHistory)
+                                  );
                                 }}
                               >
                                 <X className="h-3 w-3" />
@@ -819,7 +1048,9 @@ const Purchase = () => {
                           ))}
                         </div>
                       ) : (
-                        <div className="px-3 py-2 text-sm text-gray-500">No recent searches</div>
+                        <div className="px-3 py-2 text-sm text-gray-500">
+                          No recent searches
+                        </div>
                       )}
                     </div>
                   </PopoverContent>
@@ -828,7 +1059,9 @@ const Purchase = () => {
               <PopoverContent className="w-[300px] p-0">
                 <div className="max-h-[300px] overflow-y-auto py-2">
                   <div className="flex items-center justify-between px-3 py-1">
-                    <h4 className="text-sm font-medium">Search Results ({searchResults.length})</h4>
+                    <h4 className="text-sm font-medium">
+                      Search Results ({searchResults.length})
+                    </h4>
                   </div>
                   {searchResults.length > 0 ? (
                     <div className="mt-1">
@@ -837,7 +1070,9 @@ const Purchase = () => {
                           key={index}
                           className="flex w-full items-center px-3 py-2 text-sm hover:bg-gray-100"
                           onClick={() => {
-                            const resultIndex = purchases.findIndex((p) => p.id === result.id);
+                            const resultIndex = purchases.findIndex(
+                              (p) => p.id === result.id
+                            );
                             setCurrentPurchase(result);
                             setCurrentIndex(resultIndex);
                             setPhotoPreview(result.photoUrl || null);
@@ -854,7 +1089,9 @@ const Purchase = () => {
                       ))}
                     </div>
                   ) : (
-                    <div className="px-3 py-2 text-sm text-gray-500">No matching records</div>
+                    <div className="px-3 py-2 text-sm text-gray-500">
+                      No matching records
+                    </div>
                   )}
                 </div>
               </PopoverContent>
@@ -864,25 +1101,47 @@ const Purchase = () => {
       </div>
 
       {/* Form section */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 overflow-y-auto" ref={printRef} style={{ maxHeight: "calc(100vh - 140px)" }}>
+      <div
+        className="grid grid-cols-1 md:grid-cols-4 gap-4 overflow-y-auto"
+        ref={printRef}
+        style={{ maxHeight: "calc(100vh - 140px)" }}
+      >
         {/* Left column - Form fields */}
         <div className="col-span-1 md:col-span-3 p-4 rounded overflow-y-auto">
           {/* Transaction Details */}
           <div className="mb-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="flex">
-                <label className="w-20" style={{ backgroundColor: labelColor, padding: "4px 8px", borderRadius: "4px" }}>
+                <label
+                  className="w-20"
+                  style={{
+                    backgroundColor: labelColor,
+                    padding: "4px 8px",
+                    borderRadius: "4px",
+                  }}
+                >
                   No
                 </label>
                 <Input
                   name="manualId"
-                  value={currentPurchase.manualId || currentPurchase.id?.toString() || ""}
+                  value={
+                    currentPurchase.manualId ||
+                    currentPurchase.id?.toString() ||
+                    ""
+                  }
                   onChange={handleInputChange}
                   className="flex-1 text-2xl"
                 />
               </div>
               <div className="flex">
-                <label className="w-20" style={{ backgroundColor: labelColor, padding: "4px 8px", borderRadius: "4px" }}>
+                <label
+                  className="w-20"
+                  style={{
+                    backgroundColor: labelColor,
+                    padding: "4px 8px",
+                    borderRadius: "4px",
+                  }}
+                >
                   Date
                 </label>
                 <Input
@@ -900,36 +1159,60 @@ const Purchase = () => {
           <div className="mb-4">
             <div className="space-y-2">
               <div className="flex">
-                <label className="w-20" style={{ backgroundColor: labelColor, padding: "4px 8px", borderRadius: "4px" }}>
+                <label
+                  className="w-20"
+                  style={{
+                    backgroundColor: labelColor,
+                    padding: "4px 8px",
+                    borderRadius: "4px",
+                  }}
+                >
                   Party
                 </label>
-                <Input
-                  name="party"
+                <HighlightInput
+                  name="model"
                   value={currentPurchase.party || ""}
                   onChange={handleInputChange}
                   className="flex-1 text-2xl"
+                  highlightQuery={searchQuery}
                 />
               </div>
               <div className="flex">
-                <label className="w-20" style={{ backgroundColor: labelColor, padding: "4px 8px", borderRadius: "4px" }}>
+                <label
+                  className="w-20"
+                  style={{
+                    backgroundColor: labelColor,
+                    padding: "4px 8px",
+                    borderRadius: "4px",
+                  }}
+                >
                   Add.
                 </label>
-                <Input
+                <HighlightInput
                   name="address"
                   value={currentPurchase.address || ""}
                   onChange={handleInputChange}
                   className="flex-1 text-2xl"
+                  highlightQuery={searchQuery}
                 />
               </div>
               <div className="flex">
-                <label className="w-20" style={{ backgroundColor: labelColor, padding: "4px 8px", borderRadius: "4px" }}>
+                <label
+                  className="w-20"
+                  style={{
+                    backgroundColor: labelColor,
+                    padding: "4px 8px",
+                    borderRadius: "4px",
+                  }}
+                >
                   Ph
                 </label>
-                <Input
+                <HighlightInput
                   name="phone"
                   value={currentPurchase.phone || ""}
                   onChange={handleInputChange}
                   className="flex-1 text-2xl"
+                  highlightQuery={searchQuery}
                 />
               </div>
             </div>
@@ -939,36 +1222,60 @@ const Purchase = () => {
           <div className="mb-4">
             <div className="space-y-2">
               <div className="flex">
-                <label className="w-20" style={{ backgroundColor: labelColor, padding: "4px 8px", borderRadius: "4px" }}>
+                <label
+                  className="w-20"
+                  style={{
+                    backgroundColor: labelColor,
+                    padding: "4px 8px",
+                    borderRadius: "4px",
+                  }}
+                >
                   Model
                 </label>
-                <Input
+                <HighlightInput
                   name="model"
                   value={currentPurchase.model || ""}
                   onChange={handleInputChange}
                   className="flex-1 text-2xl"
+                  highlightQuery={searchQuery}
                 />
               </div>
               <div className="flex">
-                <label className="w-24" style={{ backgroundColor: labelColor, padding: "4px 8px", borderRadius: "4px" }}>
+                <label
+                  className="w-24"
+                  style={{
+                    backgroundColor: labelColor,
+                    padding: "4px 8px",
+                    borderRadius: "4px",
+                  }}
+                >
                   Veh. No
                 </label>
-                <Input
+                <HighlightInput
                   name="vehicleNo"
                   value={currentPurchase.vehicleNo || ""}
                   onChange={handleInputChange}
                   className="flex-1 text-2xl"
+                  highlightQuery={searchQuery}
                 />
               </div>
               <div className="flex">
-                <label className="w-20" style={{ backgroundColor: labelColor, padding: "4px 8px", borderRadius: "4px" }}>
+                <label
+                  className="w-20"
+                  style={{
+                    backgroundColor: labelColor,
+                    padding: "4px 8px",
+                    borderRadius: "4px",
+                  }}
+                >
                   Chassis
                 </label>
-                <Input
+                <HighlightInput
                   name="chassis"
                   value={currentPurchase.chassis || ""}
                   onChange={handleInputChange}
                   className="flex-1 text-2xl"
+                  highlightQuery={searchQuery}
                 />
               </div>
             </div>
@@ -978,7 +1285,14 @@ const Purchase = () => {
           <div className="mb-4">
             <div className="gap-y-2 grid grid-cols-2">
               <div className="flex">
-                <label className="w-20" style={{ backgroundColor: labelColor, padding: "0px 2px", borderRadius: "4px" }}>
+                <label
+                  className="w-20"
+                  style={{
+                    backgroundColor: labelColor,
+                    padding: "0px 2px",
+                    borderRadius: "4px",
+                  }}
+                >
                   Price
                 </label>
                 <Input
@@ -990,19 +1304,33 @@ const Purchase = () => {
                 />
               </div>
               <div className="flex">
-                <label className="w-24" style={{ backgroundColor: labelColor, padding: "4px 8px", borderRadius: "4px" }}>
+                <label
+                  className="w-24"
+                  style={{
+                    backgroundColor: labelColor,
+                    padding: "4px 8px",
+                    borderRadius: "4px",
+                  }}
+                >
                   Witness
                 </label>
-                <Input
-                  type="text"
+                <HighlightInput
                   name="witness"
                   value={currentPurchase.witness || ""}
                   onChange={handleInputChange}
                   className="flex-1 text-2xl"
+                  highlightQuery={searchQuery}
                 />
               </div>
               <div className="flex">
-                <label className="w-20" style={{ backgroundColor: labelColor, padding: "4px 8px", borderRadius: "4px" }}>
+                <label
+                  className="w-20"
+                  style={{
+                    backgroundColor: labelColor,
+                    padding: "4px 8px",
+                    borderRadius: "4px",
+                  }}
+                >
                   Trans.
                 </label>
                 <Input
@@ -1014,19 +1342,33 @@ const Purchase = () => {
                 />
               </div>
               <div className="flex">
-                <label className="w-24" style={{ backgroundColor: labelColor, padding: "4px 8px", borderRadius: "4px" }}>
+                <label
+                  className="w-24"
+                  style={{
+                    backgroundColor: labelColor,
+                    padding: "4px 8px",
+                    borderRadius: "4px",
+                  }}
+                >
                   Address
                 </label>
-                <Input
-                  readOnly
-                  type="text"
+                <HighlightInput
                   name="address"
                   value={currentPurchase.address || ""}
-                  className="flex-1 text-2xl bg-gray-50"
+                  onChange={handleInputChange}
+                  className="flex-1 text-2xl"
+                  highlightQuery={searchQuery}
                 />
               </div>
               <div className="flex">
-                <label className="w-20" style={{ backgroundColor: labelColor, padding: "4px 8px", borderRadius: "4px" }}>
+                <label
+                  className="w-20"
+                  style={{
+                    backgroundColor: labelColor,
+                    padding: "4px 8px",
+                    borderRadius: "4px",
+                  }}
+                >
                   Broker
                 </label>
                 <Input
@@ -1038,20 +1380,34 @@ const Purchase = () => {
                 />
               </div>
               <div className="flex">
-                <label className="w-36" style={{ backgroundColor: labelColor, padding: "2px 8px", borderRadius: "4px" }}>
+                <label
+                  className="w-36"
+                  style={{
+                    backgroundColor: labelColor,
+                    padding: "2px 8px",
+                    borderRadius: "4px",
+                  }}
+                >
                   Phone No
                 </label>
-                <Input
-                  type="number"
-                  name="phone"
-                  value={currentPurchase.phone || ""}
+                <HighlightInput
+                  name="witnessphone"
+                  value={currentPurchase.witnessphone || ""}
                   onChange={handleInputChange}
                   className="flex-1 text-2xl"
+                  highlightQuery={searchQuery}
                 />
               </div>
-              
+
               <div className="flex">
-                <label className="w-20" style={{ backgroundColor: labelColor, padding: "4px 8px", borderRadius: "4px" }}>
+                <label
+                  className="w-20"
+                  style={{
+                    backgroundColor: labelColor,
+                    padding: "4px 8px",
+                    borderRadius: "4px",
+                  }}
+                >
                   Total
                 </label>
                 <Input
@@ -1067,16 +1423,24 @@ const Purchase = () => {
 
           {/* Remarks */}
           <div className="mb-4">
-            <h3 className="mb-2" style={{ backgroundColor: labelColor, padding: "4px 8px", borderRadius: "4px" }}>
+            <h3
+              className="mb-2"
+              style={{
+                backgroundColor: labelColor,
+                padding: "4px 8px",
+                borderRadius: "4px",
+              }}
+            >
               Remarks
             </h3>
             <div className="space-y-2">
               <div className="flex">
-                <Input
+              <HighlightInput
                   name="remark"
                   value={currentPurchase.remark || ""}
                   onChange={handleInputChange}
                   className="flex-1 text-2xl"
+                  highlightQuery={searchQuery}
                 />
               </div>
             </div>
@@ -1086,20 +1450,34 @@ const Purchase = () => {
         {/* Right column - Vehicle photo */}
         <div className="col-span-1 p-4 rounded bg-gray-50">
           <div className="flex flex-col h-full">
-            <h3 className="mb-2" style={{ backgroundColor: labelColor, padding: "4px 8px", borderRadius: "4px" }}>
+            <h3
+              className="mb-2"
+              style={{
+                backgroundColor: labelColor,
+                padding: "4px 8px",
+                borderRadius: "4px",
+              }}
+            >
               Vehicle Photo
             </h3>
 
             <div className="flex-1 text-2xl flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-md p-4 mb-4 relative">
               {photoPreview ? (
                 <div className="relative w-full h-full flex items-center justify-center">
-                  <div onClick={handleViewPhoto} className="cursor-pointer relative group">
+                  <div
+                    onClick={handleViewPhoto}
+                    className="cursor-pointer relative group"
+                  >
                     <img
-                      src={photoPreview}
+                      src={
+                        photoPreview?.startsWith("http")
+                          ? photoPreview
+                          : `http://localhost:3001${photoPreview}`
+                      }
                       alt="Vehicle"
                       className="max-w-full max-h-[200px] object-contain rounded"
                       onError={(e) => {
-                        (e.target as HTMLImageElement).style.display = 'none';
+                        (e.target as HTMLImageElement).style.display = "none";
                         setPhotoPreview(null);
                       }}
                     />
@@ -1136,8 +1514,8 @@ const Purchase = () => {
       </div>
 
       {photoPreview && showPhotoModal && (
-        <ImagePreviewModal 
-          imageUrl={photoPreview} 
+        <ImagePreviewModal
+          imageUrl={photoPreview}
           showCloseButton={true}
           onClose={() => setShowPhotoModal(false)}
           alt="Vehicle"

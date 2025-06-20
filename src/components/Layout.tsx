@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useNavigate, Link, Outlet, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import {
   restoreBackup,
   resetLastId,
   configureNasStorage,
+  VehiclePurchase,
 } from "@/utils/dataStorage";
 import {
   Dialog,
@@ -29,13 +30,17 @@ import {
   Bike,
   BikeIcon,
   Factory,
-  Instagram,
-  InstagramIcon,
+  FileDown,
+  FileUp,
   LucideBike,
 } from "lucide-react";
 import KeyBindDialog from "./KeyBindDialog";
+import * as XLSX from "xlsx";
+import { saveAs } from "file-saver";
+import { useSalesData } from "@/hooks/useSalesData";
 
 const Layout = () => {
+  const { sales } = useSalesData();
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -45,6 +50,8 @@ const Layout = () => {
   const [isNasConfigOpen, setIsNasConfigOpen] = useState(false);
   const [backupData, setBackupData] = useState("");
   const [restoreData, setRestoreData] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+   const [purchases, setPurchases] = useState<VehiclePurchase[]>([]);
 
   useEffect(() => {
     if (!user) {
@@ -161,6 +168,77 @@ const Layout = () => {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
+  const handleImportFromFile = () => {
+    fileInputRef.current?.click();
+  };
+  const handleExportToExcel = () => {
+    try {
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.json_to_sheet(sales);
+      XLSX.utils.book_append_sheet(wb, ws, "SalesData");
+      const excelBuffer = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+      const blob = new Blob([excelBuffer], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      saveAs(
+        blob,
+        `sales_export_${new Date().toISOString().slice(0, 10)}.xlsx`
+      );
+      toast({
+        title: "Export Successful",
+        description: "Sales data exported to Excel",
+      });
+    } catch (error) {
+      toast({
+        title: "Export Failed",
+        description: "Error exporting to Excel",
+        variant: "destructive",
+      });
+    }
+  };
+
+    const handleExportPurchase = () => {
+      try {
+        const dataToExport = purchases.map((purchase) => ({
+          ID: purchase.id,
+          Date: purchase.date,
+          Party: purchase.party,
+          Address: purchase.address,
+          Phone: purchase.phone,
+          Remark: purchase.remark,
+          Model: purchase.model,
+          "Vehicle No": purchase.vehicleNo,
+          Chassis: purchase.chassis,
+          Price: purchase.price,
+          "Transport Cost": purchase.transportCost,
+          Total: purchase.total,
+          Photo: purchase.photoUrl || "",
+          Brokerage: purchase.brokerage,
+          witnessphone: purchase.witnessphone,
+        }));
+  
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.json_to_sheet(dataToExport);
+        XLSX.utils.book_append_sheet(wb, ws, "Purchases");
+        XLSX.writeFile(wb, "vehicle_purchases.xlsx");
+  
+        toast({
+          title: "Export Successful",
+          description: "Purchase data has been exported to Excel",
+        });
+      } catch (error) {
+        console.error("Error exporting to Excel:", error);
+        toast({
+          title: "Export Failed",
+          description: "An error occurred while exporting data to Excel",
+          variant: "destructive",
+        });
+      }
+    };
+  
+    const handleImportPurchase = () => {
+      fileInputRef.current?.click();
+    };
 
   return (
     <div className="flex flex-col h-screen">
@@ -170,7 +248,7 @@ const Layout = () => {
             <h1 className="text-xl font-semibold">Kesari Auto Center</h1>
             <span className="text-sm text-gray-500">Version 2.0.0</span>
           </div> */}
-          <div className="flex items-center gap-2">      
+          <div className="flex items-center gap-2">
             <div className="flex mt-2 items-center">
               <nav className="flex-1">
                 <ul className="flex space-x-4">
@@ -217,6 +295,7 @@ const Layout = () => {
                   <DropdownMenuTrigger asChild>
                     <Button variant="outline">Tools</Button>
                   </DropdownMenuTrigger>
+
                   <DropdownMenuContent className="bg-white p-1">
                     <DropdownMenuItem onClick={handleBackup}>
                       Backup
@@ -231,7 +310,7 @@ const Layout = () => {
                       NAS Configuration
                     </DropdownMenuItem>
                     <DropdownMenuItem>
-                    <KeyBindDialog />
+                      <KeyBindDialog />
                     </DropdownMenuItem>
                     <DropdownMenuItem>
                       <Link to={"/admin"}>
@@ -239,6 +318,46 @@ const Layout = () => {
                           Admin Panel
                         </Button>
                       </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem>
+                      <Button
+                        variant="outline"
+                        onClick={handleExportToExcel}
+                        className="bg-green-50"
+                        size="sm"
+                      >
+                        <FileDown className="h-4 w-4 mr-2" /> Export Sales
+                      </Button>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem>
+                      <Button
+                        variant="outline"
+                        onClick={handleImportFromFile}
+                        className="bg-blue-50"
+                        size="sm"
+                      >
+                        <FileUp className="h-4 w-4 mr-2" /> Import Sales
+                      </Button>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem>
+                      <Button
+                        variant="outline"
+                        onClick={handleExportPurchase}
+                        className="bg-green-50"
+                        size="sm"
+                      >
+                        <FileDown className="h-4 w-4 mr-2" /> Export Purchase
+                      </Button>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem>
+                      <Button
+                        variant="outline"
+                        onClick={handleImportPurchase}
+                        className="bg-blue-50"
+                        size="sm"
+                      >
+                        <FileUp className="h-4 w-4 mr-2" /> Import Purchase
+                      </Button>
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -249,7 +368,9 @@ const Layout = () => {
             <KeyBindDialog />
           </div> */}
           <div className="flex items-center space-x-2">
-          <span className="text-xl text-bold text-gray-600">User: {user.username}</span>
+            <span className="text-xl text-bold text-gray-600">
+              User: {user.username}
+            </span>
             <Button variant="destructive" size="sm" onClick={handleLogout}>
               Logout
             </Button>

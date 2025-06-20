@@ -68,6 +68,7 @@ export interface VehiclePurchase {
   manualId?: string; // Add the manualId optional property
   brokerage: number;
   witness: string;
+  witnessphone: string;
 }
 
 export interface DuePayment {
@@ -869,12 +870,13 @@ export interface VehiclePurchase {
   brokerage: number;
   witness: string;
   created_at?: string;
+  witnessphone?: string;
 }
 
 export const getPurchases = async (): Promise<VehiclePurchase[]> => {
   try {
     const { data, error } = await supabase
-      .from('purchases')  // Changed from 'vehicle_purchases' to 'purchases'
+      .from('purchases')
       .select('*')
       .order('created_at', { ascending: false });
 
@@ -888,19 +890,20 @@ export const getPurchases = async (): Promise<VehiclePurchase[]> => {
       phone: purchase.phone,
       remark: purchase.remark,
       model: purchase.model,
-      vehicleNo: purchase.vehicle_no,
+      vehicleNo: purchase.vehicle_no, // mapped from vehicle_no
       chassis: purchase.chassis,
       price: purchase.price,
-      transportCost: purchase.transport_cost,
+      transportCost: purchase.transport_cost, // mapped from transport_cost
       insurance: purchase.insurance,
       finance: purchase.finance,
       repair: purchase.repair,
       penalty: purchase.penalty,
       total: purchase.total,
-      photoUrl: purchase.photo_url,
-      manualId: purchase.manual_id,
+      photoUrl: purchase.photo_url, // mapped from photo_url
+      manualId: purchase.manual_id, // mapped from manual_id
       brokerage: purchase.brokerage,
-      witness: purchase.witness
+      witness: purchase.witness,
+      witnessphone: purchase.witnessphone // ensure this matches your Supabase column name
     }));
   } catch (error) {
     console.error('Error fetching purchases:', error);
@@ -932,7 +935,8 @@ export const addPurchase = async (
       photo_url: purchase.photoUrl,
       manual_id: purchase.manualId,  // Changed to match DB column
       brokerage: purchase.brokerage,
-      witness: purchase.witness
+      witness: purchase.witness,
+      witnessphone: purchase.witnessphone
     };
 
     const { data, error } = await supabase
@@ -973,7 +977,8 @@ export const updatePurchase = async (
       photo_url: purchase.photoUrl,
       manual_id: purchase.manualId,  // This is the key issue - using snake_case here
       brokerage: purchase.brokerage,
-      witness: purchase.witness
+      witness: purchase.witness,
+      witnessphone: purchase.witnessphone
     };
 
     const { data, error } = await supabase
@@ -1005,7 +1010,8 @@ export const updatePurchase = async (
       photoUrl: data[0].photo_url,
       manualId: data[0].manual_id,
       brokerage: data[0].brokerage,
-      witness: data[0].witness
+      witness: data[0].witness,
+      witnessphone: data[0].witnessphone,
     };
   } catch (error) {
     console.error('Error updating purchase:', error);

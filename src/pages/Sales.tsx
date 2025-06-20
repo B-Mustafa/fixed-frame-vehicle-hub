@@ -24,7 +24,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { useSalesData } from "@/hooks/useSalesData";
 import * as XLSX from "xlsx";
 import { saveAs } from "file-saver";
-import { VehicleSale } from "@/utils/dataStorage";
+import { addSale, VehicleSale } from "@/utils/dataStorage";
+import { importSalesFromExcel } from "@/utils/excelStorage";
+import { addSupabaseSale } from "@/integrations/supabase/service";
+import HighlightInput from "@/components/HighlightInput";
+import HighlightTextarea from "@/components/HighlightTextarea";
 
 const SEARCH_HISTORY_KEY = "salesSearchHistory";
 
@@ -42,6 +46,19 @@ const formatToDisplayDate = (dateString: string | undefined): string => {
   }
 };
 
+const highlightText = (text: string, searchQuery: string) => {
+  if (!searchQuery.trim() || !text) return text;
+
+  const regex = new RegExp(`(${escapeRegExp(searchQuery)})`, "gi");
+  return text
+    .toString()
+    .replace(regex, '<mark class="bg-yellow-300">$1</mark>');
+};
+
+const escapeRegExp = (string: string) => {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+};
+
 const formatToInputDate = (dateString: string | undefined): string => {
   if (!dateString) return format(new Date(), "yyyy-MM-dd");
   try {
@@ -50,7 +67,6 @@ const formatToInputDate = (dateString: string | undefined): string => {
     return format(new Date(), "yyyy-MM-dd");
   }
 };
-
 
 const Sales = () => {
   const {
@@ -81,6 +97,7 @@ const Sales = () => {
   >([]);
   const [searchResults, setSearchResults] = useState<VehicleSale[]>([]);
   const [showSearchResults, setShowSearchResults] = useState(false);
+  const [currentSearchIndex, setCurrentSearchIndex] = useState(0);
 
   const printRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -92,6 +109,12 @@ const Sales = () => {
     // If already in yyyy-mm-dd format, return as-is
     if (/^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
       return dateString;
+    }
+
+    // Handle DD/MM/YYYY format (if needed)
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(dateString)) {
+      const [day, month, year] = dateString.split("/");
+      return `${year}-${month}-${day}`;
     }
 
     // Convert from dd/mm/yyyy to yyyy-mm-dd
@@ -118,6 +141,82 @@ const Sales = () => {
       }));
     }
   }, [currentSale.id, setCurrentSale]);
+
+  // Add keyboard event listener for navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl+Enter for next item (either search result or normal next)
+      if (e.key === "Enter" && e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        if (searchResults.length > 0) {
+          navigateToNextSearchResult();
+        } else if (sales.length > 0 && currentIndex < sales.length - 1) {
+          navigateNext();
+        }
+      }
+      // Alt+Enter for previous item (either search result or normal previous)
+      else if (e.key === "Enter" && e.altKey && !e.ctrlKey) {
+        e.preventDefault();
+        if (searchResults.length > 0) {
+          navigateToPrevSearchResult();
+        } else if (sales.length > 0 && currentIndex > 0) {
+          navigatePrev();
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [searchResults, currentSearchIndex, sales, currentIndex]);
+
+  // Navigate to next item
+  const navigateToNextSearchResult = () => {
+    if (searchResults.length === 0) {
+      if (sales.length > 0 && currentIndex < sales.length - 1) {
+        navigateNext();
+      }
+      return;
+    }
+
+    const nextIndex = (currentSearchIndex + 1) % searchResults.length;
+    setCurrentSearchIndex(nextIndex);
+
+    const foundSale = searchResults[nextIndex];
+    const saleIndex = sales.findIndex((p) => p.id === foundSale.id);
+    setCurrentSale(foundSale);
+    setCurrentIndex(saleIndex);
+    setPhotoPreview(foundSale.photoUrl || null);
+
+    toast({
+      title: "Navigation",
+      description: `Showing result ${nextIndex + 1} of ${searchResults.length}`,
+    });
+  };
+
+  // Navigate to previous item
+  const navigateToPrevSearchResult = () => {
+    if (searchResults.length === 0) {
+      if (sales.length > 0 && currentIndex > 0) {
+        navigatePrev();
+      }
+      return;
+    }
+
+    const prevIndex =
+      (currentSearchIndex - 1 + searchResults.length) % searchResults.length;
+    setCurrentSearchIndex(prevIndex);
+
+    const foundSale = searchResults[prevIndex];
+    const saleIndex = sales.findIndex((p) => p.id === foundSale.id);
+    setCurrentSale(foundSale);
+    setCurrentIndex(saleIndex);
+    setPhotoPreview(foundSale.photoUrl || null);
+
+    toast({
+      title: "Navigation",
+      description: `Showing result ${prevIndex + 1} of ${searchResults.length}`,
+    });
+  };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value, type } = e.target;
@@ -152,52 +251,46 @@ const Sales = () => {
     setCurrentSale((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleInstallmentChange = (index: number, field: string, value: any) => {
-    setCurrentSale(prev => {
+  const handleInstallmentChange = (
+    index: number,
+    field: string,
+    value: any
+  ) => {
+    setCurrentSale((prev) => {
       const updatedInstallments = [...prev.installments];
-      
+
       if (field === "enabled") {
         // When checkbox is toggled, update enabled status
         const isEnabled = Boolean(value);
         updatedInstallments[index] = {
           ...updatedInstallments[index],
-          // If enabling, set today's date if date is empty
-          date: isEnabled && !updatedInstallments[index].date ? 
-            getCurrentDate() : 
-            updatedInstallments[index].date,
-          // Keep existing amount when enabling
+          date: updatedInstallments[index].date || "", 
           amount: updatedInstallments[index].amount || 0,
           enabled: isEnabled,
         };
       } else if (field === "date") {
-        // For date inputs, convert YYYY-MM-DD to DD/MM/YYYY
-        if (value && typeof value === 'string' && value.includes('-')) {
-          const [year, month, day] = value.split('-');
-          const formattedDate = `${day}/${month}/${year}`;
-          updatedInstallments[index] = {
-            ...updatedInstallments[index],
-            date: formattedDate,
-          };
-        } else {
-          updatedInstallments[index] = {
-            ...updatedInstallments[index],
-            date: value || getCurrentDate(),
-          };
+        // For date inputs, convert YYYY-MM-DD to DD/MM/YYYY if needed
+        let formattedDate = value;
+        if (value && typeof value === "string" && value.includes("-")) {
+          const [year, month, day] = value.split("-");
+          formattedDate = `${day}/${month}/${year}`;
         }
+        updatedInstallments[index] = {
+          ...updatedInstallments[index],
+          date: formattedDate || "",
+        };
       } else if (field === "amount") {
-        // Handle amount change - ensure numeric value
         updatedInstallments[index] = {
           ...updatedInstallments[index],
           amount: value === "" ? 0 : parseFloat(value),
         };
       } else if (field === "paid") {
-        // Handle paid amount change
         updatedInstallments[index] = {
           ...updatedInstallments[index],
           paid: value === "" ? 0 : parseFloat(value),
         };
       }
-      
+
       return {
         ...prev,
         installments: updatedInstallments,
@@ -235,10 +328,13 @@ const Sales = () => {
       // Remove the vehicleNo from the form data since we're not using it anymore
       // formData.append('vehicleNo', vehicle_no); // Remove this line
 
-      const response = await fetch('http://192.168.2.7:8080/api/server.php', {
-        method: 'POST',
-        body: formData,
-      });
+      const response = await fetch(
+        "http://localhost:3001/upload-vehicle-image",
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
 
       if (!response.ok) throw new Error("Upload failed");
 
@@ -298,20 +394,59 @@ const Sales = () => {
     if (!file) return;
 
     try {
-      const data = await file.arrayBuffer();
-      const workbook = XLSX.read(data);
-      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-      const jsonData = XLSX.utils.sheet_to_json(worksheet);
+      // Show loading state
       toast({
-        title: "Import Successful",
-        description: `${jsonData.length} records imported`,
+        title: "Importing...",
+        description: "Processing Excel file",
+      });
+
+      // 1. Parse the Excel file
+      const importedSales = await importSalesFromExcel(file);
+
+      // 2. Process each sale
+      let successCount = 0;
+      let errorCount = 0;
+
+      for (const sale of importedSales) {
+        try {
+          if (useSupabase) {
+            // Save to Supabase
+            await addSupabaseSale(sale);
+          } else {
+            // Save to local storage
+            await addSale(sale);
+          }
+          successCount++;
+        } catch (error) {
+          console.error("Error saving sale:", error);
+          errorCount++;
+        }
+      }
+
+      // 3. Refresh data
+      await fetchSales();
+
+      // 4. Show results
+      toast({
+        title: "Import Complete",
+        description: `Successfully imported ${successCount} records${
+          errorCount > 0 ? `, ${errorCount} failed` : ""
+        }`,
+        variant: errorCount > 0 ? "destructive" : "default",
       });
     } catch (error) {
+      console.error("Import error:", error);
       toast({
         title: "Import Failed",
-        description: "Error importing file",
+        description:
+          error instanceof Error ? error.message : "Error processing the file",
         variant: "destructive",
       });
+    } finally {
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
     }
   };
 
@@ -457,19 +592,11 @@ const Sales = () => {
           </Button>
           <Button
             variant="outline"
-            onClick={handleExportToExcel}
-            className="bg-green-50"
-            size="sm"
-          >
-            <FileDown className="h-4 w-4 mr-2" /> Export Excel
-          </Button>
-          <Button
-            variant="outline"
             onClick={handleImportFromFile}
             className="bg-blue-50"
             size="sm"
           >
-            <FileUp className="h-4 w-4 mr-2" /> Import
+            <FileUp className="h-4 w-4 mr-2" /> Import Sales
           </Button>
 
           <input
@@ -585,11 +712,11 @@ const Sales = () => {
         ref={printRef}
       >
         {/* Left column - Form fields */}
-        <div className="col-span-2 p-4 overflow-y-hidden">
+        <div className="col-span-3 p-4 overflow-y-hidden">
           <div className="grid grid-cols-2 gap-4">
             {/* Basic Info */}
             <div>
-              <div className="mb-2 w-[140%]">
+              <div className="mb-2 w-[130%]">
                 <div className="space-y-2">
                   <div className="flex">
                     <label
@@ -642,7 +769,7 @@ const Sales = () => {
               </div>
 
               {/* Party Details */}
-              <div className="mb-2 w-[140%]">
+              <div className="mb-2 w-[130%]">
                 <div className="space-y-2">
                   <div className="flex">
                     <label
@@ -655,16 +782,17 @@ const Sales = () => {
                     >
                       Party
                     </label>
-                    <Input
+                    <HighlightInput
                       name="party"
                       value={currentSale.party}
                       onChange={handleInputChange}
                       className="flex-1 text-2xl"
+                      highlightQuery={searchQuery}
                     />
                   </div>
                   <div className="flex">
                     <label
-                      className="w-20 flex text-center items-center justify-center"
+                      className="w-24 flex text-center items-center justify-center"
                       style={{
                         backgroundColor: labelColor,
                         padding: "0px 4px",
@@ -673,11 +801,12 @@ const Sales = () => {
                     >
                       Add.
                     </label>
-                    <Textarea
+                    <HighlightTextarea
                       name="address"
                       value={currentSale.address}
                       onChange={handleTextArea}
                       className="flex-1 text-2xl"
+                      highlightQuery={searchQuery}
                     />
                   </div>
                   <div className="flex">
@@ -691,18 +820,19 @@ const Sales = () => {
                     >
                       Ph
                     </label>
-                    <Input
+                    <HighlightInput
                       name="phone"
                       value={currentSale.phone}
                       onChange={handleInputChange}
                       className="flex-1 text-2xl"
+                      highlightQuery={searchQuery}
                     />
                   </div>
                 </div>
               </div>
 
               {/* Vehicle Details */}
-              <div className="mb-2 w-[140%]">
+              <div className="mb-2 w-[130%]">
                 <div className="space-y-2">
                   <div className="flex">
                     <label
@@ -715,11 +845,12 @@ const Sales = () => {
                     >
                       Model
                     </label>
-                    <Input
+                    <HighlightInput
                       name="model"
                       value={currentSale.model}
                       onChange={handleInputChange}
                       className="flex-1 text-2xl"
+                      highlightQuery={searchQuery}
                     />
                   </div>
                   <div className="flex">
@@ -733,11 +864,12 @@ const Sales = () => {
                     >
                       Veh No
                     </label>
-                    <Input
+                    <HighlightInput
                       name="vehicleNo"
                       value={currentSale.vehicleNo}
                       onChange={handleInputChange}
                       className="flex-1 text-2xl"
+                      highlightQuery={searchQuery}
                     />
                   </div>
                   <div className="flex">
@@ -751,256 +883,256 @@ const Sales = () => {
                     >
                       Chassis
                     </label>
-                    <Input
+                    <HighlightInput
                       name="chassis"
                       value={currentSale.chassis}
                       onChange={handleInputChange}
                       className="flex-1 text-2xl"
+                      highlightQuery={searchQuery}
                     />
+                  </div>
+                </div>
+              </div>
+              <div>
+                <div className="mb-2">
+                  <div className="gap-2 mr-0 w-[130%] grid grid-cols-3 ">
+                    <div className="flex">
+                      <label
+                        className="w-24"
+                        style={{
+                          backgroundColor: labelColor,
+                          padding: "0px 4px",
+                          borderRadius: "4px",
+                        }}
+                      >
+                        Price
+                      </label>
+                      <Input
+                        type="number"
+                        name="price"
+                        value={currentSale.price || ""}
+                        onChange={handleInputChange}
+                        className="flex-1 text-2xl"
+                      />
+                    </div>
+                    <div className="flex">
+                      <label
+                        className="w-24"
+                        style={{
+                          backgroundColor: labelColor,
+                          padding: "0px 4px",
+                          borderRadius: "4px",
+                        }}
+                      >
+                        Trans.
+                      </label>
+                      <Input
+                        type="number"
+                        name="transportCost"
+                        value={currentSale.transportCost || ""}
+                        onChange={handleInputChange}
+                        className="flex-1 text-2xl"
+                      />
+                    </div>
+                    <div className="flex">
+                      <label
+                        className="w-24"
+                        style={{
+                          backgroundColor: labelColor,
+                          padding: "0px 4px",
+                          borderRadius: "4px",
+                        }}
+                      >
+                        Insur.
+                      </label>
+                      <Input
+                        type="number"
+                        name="insurance"
+                        value={currentSale.insurance || ""}
+                        onChange={handleInputChange}
+                        className="flex-1 text-2xl"
+                      />
+                    </div>
+                    <div className="flex">
+                      <label
+                        className="w-24"
+                        style={{
+                          backgroundColor: labelColor,
+                          padding: "0px 4px",
+                          borderRadius: "4px",
+                        }}
+                      >
+                        Finan
+                      </label>
+                      <Input
+                        type="number"
+                        name="finance"
+                        value={currentSale.finance || ""}
+                        onChange={handleInputChange}
+                        className="flex-1 text-2xl"
+                      />
+                    </div>
+                    <div className="flex">
+                      <label
+                        className="w-24"
+                        style={{
+                          backgroundColor: labelColor,
+                          padding: "0px 4px",
+                          borderRadius: "4px",
+                        }}
+                      >
+                        Repair
+                      </label>
+                      <Input
+                        type="number"
+                        name="repair"
+                        value={currentSale.repair || ""}
+                        onChange={handleInputChange}
+                        className="flex-1 text-2xl"
+                      />
+                    </div>
+                    <div className="flex">
+                      <label
+                        className="w-24"
+                        style={{
+                          backgroundColor: labelColor,
+                          padding: "0px 4px",
+                          borderRadius: "4px",
+                        }}
+                      >
+                        Penalt
+                      </label>
+                      <Input
+                        type="number"
+                        name="penalty"
+                        value={currentSale.penalty || ""}
+                        onChange={handleInputChange}
+                        className="flex-1 text-2xl"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Due Details */}
+                <div className="mb-2">
+                  <div className="gap-2 mr-0 w-[130%] grid grid-cols-3 ">
+                    <div className="flex">
+                      <label
+                        className="w-24"
+                        style={{
+                          backgroundColor: labelColor,
+                          padding: "0px 4px",
+                          borderRadius: "4px",
+                        }}
+                      >
+                        Total
+                      </label>
+                      <Input
+                        readOnly
+                        type="number"
+                        name="total"
+                        value={currentSale.total || ""}
+                        className="flex-1 text-2xl bg-gray-50"
+                      />
+                    </div>
+                    <div className="flex">
+                      <label
+                        className="w-36"
+                        style={{
+                          backgroundColor: labelColor,
+                          padding: "4px 4px",
+                          borderRadius: "4px",
+                        }}
+                      >
+                        Due Amt
+                      </label>
+                      <Input
+                        type="number"
+                        name="dueAmount"
+                        value={currentSale.dueAmount || ""}
+                        onChange={handleInputChange}
+                        className="flex-1 text-2xl w-[100%]"
+                        disabled
+                      />
+                    </div>
+                    <div className="flex">
+                      <label
+                        className="w-36"
+                        style={{
+                          backgroundColor: labelColor,
+                          padding: "0px 4px",
+                          borderRadius: "4px",
+                        }}
+                      >
+                        Due
+                      </label>
+                      <Input
+                        type="date"
+                        name="dueDate"
+                        value={formatToInputDate(currentSale.dueDate)}
+                        onChange={(e) => {
+                          const formattedDate = formatToDisplayDate(
+                            e.target.value
+                          );
+                          setCurrentSale((prev) => ({
+                            ...prev,
+                            dueDate: formattedDate,
+                          }));
+                        }}
+                        className="flex-1 text-xs w-full"
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div className="flex w-[130%]">
+                  <h3
+                    className="mb-0"
+                    style={{
+                      backgroundColor: labelColor,
+                      padding: "4px 4px",
+                      borderRadius: "4px",
+                    }}
+                  >
+                    Remarks
+                  </h3>
+                  <div className="space-y-2 w-full">
+                    <div className="flex flex-1 text-2xl">
+                      <HighlightTextarea
+                        name="remark_installment"
+                        value={currentSale.remark_installment}
+                        onChange={handleInputChange}
+                        className="flex-1 text-2xl"
+                        highlightQuery={searchQuery}
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
 
             {/* Cost Details */}
-            <div>
-              <div className="mb-2">
-                <div className="space-y-2 mr-0 ml-auto w-64 flex flex-col items-left ">
-                  <div className="flex">
-                    <label
-                      className="w-24"
-                      style={{
-                        backgroundColor: labelColor,
-                        padding: "0px 4px",
-                        borderRadius: "4px",
-                      }}
-                    >
-                      Price
-                    </label>
-                    <Input
-                      type="number"
-                      name="price"
-                      value={currentSale.price || ""}
-                      onChange={handleInputChange}
-                      className="flex-1 text-2xl"
-                    />
-                  </div>
-                  <div className="flex">
-                    <label
-                      className="w-24"
-                      style={{
-                        backgroundColor: labelColor,
-                        padding: "0px 4px",
-                        borderRadius: "4px",
-                      }}
-                    >
-                      Trans.
-                    </label>
-                    <Input
-                      type="number"
-                      name="transportCost"
-                      value={currentSale.transportCost || ""}
-                      onChange={handleInputChange}
-                      className="flex-1 text-2xl"
-                    />
-                  </div>
-                  <div className="flex">
-                    <label
-                      className="w-24"
-                      style={{
-                        backgroundColor: labelColor,
-                        padding: "0px 4px",
-                        borderRadius: "4px",
-                      }}
-                    >
-                      Insur.
-                    </label>
-                    <Input
-                      type="number"
-                      name="insurance"
-                      value={currentSale.insurance || ""}
-                      onChange={handleInputChange}
-                      className="flex-1 text-2xl"
-                    />
-                  </div>
-                  <div className="flex">
-                    <label
-                      className="w-24"
-                      style={{
-                        backgroundColor: labelColor,
-                        padding: "0px 4px",
-                        borderRadius: "4px",
-                      }}
-                    >
-                      Finan
-                    </label>
-                    <Input
-                      type="number"
-                      name="finance"
-                      value={currentSale.finance || ""}
-                      onChange={handleInputChange}
-                      className="flex-1 text-2xl"
-                    />
-                  </div>
-                  <div className="flex">
-                    <label
-                      className="w-24"
-                      style={{
-                        backgroundColor: labelColor,
-                        padding: "0px 4px",
-                        borderRadius: "4px",
-                      }}
-                    >
-                      Repair
-                    </label>
-                    <Input
-                      type="number"
-                      name="repair"
-                      value={currentSale.repair || ""}
-                      onChange={handleInputChange}
-                      className="flex-1 text-2xl"
-                    />
-                  </div>
-                  <div className="flex">
-                    <label
-                      className="w-24"
-                      style={{
-                        backgroundColor: labelColor,
-                        padding: "0px 4px",
-                        borderRadius: "4px",
-                      }}
-                    >
-                      Penalt
-                    </label>
-                    <Input
-                      type="number"
-                      name="penalty"
-                      value={currentSale.penalty || ""}
-                      onChange={handleInputChange}
-                      className="flex-1 text-2xl"
-                    />
-                  </div>
-                  <div className="flex">
-                    <label
-                      className="w-24"
-                      style={{
-                        backgroundColor: labelColor,
-                        padding: "0px 4px",
-                        borderRadius: "4px",
-                      }}
-                    >
-                      Total
-                    </label>
-                    <Input
-                      readOnly
-                      type="number"
-                      name="total"
-                      value={currentSale.total || ""}
-                      className="flex-1 text-2xl bg-gray-50"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Due Details */}
-              <div className="mb-2">
-                <div className="space-y-2 mr-0 ml-auto w-64 flex flex-col items-left">
-                  <div className="flex">
-                    <label
-                      className="w-36"
-                      style={{
-                        backgroundColor: labelColor,
-                        padding: "4px 4px",
-                        borderRadius: "4px",
-                      }}
-                    >
-                      Due Amt
-                    </label>
-                    <Input
-                      type="number"
-                      name="dueAmount"
-                      value={currentSale.dueAmount || ""}
-                      onChange={handleInputChange}
-                      className="flex-1 text-2xl w-[100%]"
-                      disabled
-                    />
-                  </div>
-                  <div className="flex">
-                    <label
-                      className="w-36"
-                      style={{
-                        backgroundColor: labelColor,
-                        padding: "0px 4px",
-                        borderRadius: "4px",
-                      }}
-                    >
-                      Due
-                    </label>
-                    <Input
-                      type="date"
-                      name="dueDate"
-                      value={formatToInputDate(currentSale.dueDate)}
-                      onChange={(e) => {
-                        const formattedDate = formatToDisplayDate(
-                          e.target.value
-                        );
-                        setCurrentSale((prev) => ({
-                          ...prev,
-                          dueDate: formattedDate,
-                        }));
-                      }}
-                      className="flex-1 text-md w-full"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Installments */}
-          <div className="mb-4">
-            {/* Remarks */}
-            <div className="flex w-full">
-              <h3
-                className="mb-2"
-                style={{
-                  backgroundColor: labelColor,
-                  padding: "4px 4px",
-                  borderRadius: "4px",
-                }}
-              >
-                Remarks
-              </h3>
-              <div className="space-y-2 w-full">
-                <div className="flex flex-1 text-2xl">
-                  <Input
-                    name="remark_installment"
-                    value={currentSale.remark_installment || ""}
-                    onChange={handleInputChange}
-                    className="flex-1 text-2xl"
-                  />
-                </div>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-2 mr-0 ml-44 w-72 flex flex-col items-start">
               {currentSale.installments
-                .slice(0, 12)
+                .slice(0, 18)
                 .map((installment, index) => (
-                  <div key={index} className="flex items-center gap-2">
-                    <div className="flex-1 text-2xl">
+                  <div
+                    key={index}
+                    className="flex items-center justify-start gap-1"
+                  >
+                    <div className="w-36 text-xs">
                       <Input
                         type="date"
                         value={formatToInputDate(installment.date)}
                         onChange={(e) =>
                           handleInstallmentChange(index, "date", e.target.value)
                         }
-                        className="w-full h-8 text-2xl"
+                        className="min-w-fit h-8 text-xs font-extrabold"
                         disabled={!installment.enabled}
                       />
                     </div>
                     <div className="flex-1 text-2xl">
                       <Input
-                        type="number"
+                        type="text"
                         value={installment.amount || ""}
                         onChange={(e) =>
                           handleInstallmentChange(
@@ -1027,7 +1159,7 @@ const Sales = () => {
         </div>
 
         {/* Right column - Photo and Witness Details */}
-        <div className="col-span-2 bg-[#0080FF] h-auto">
+        <div className="col-span-1 w-[120%] bg-[#0080FF] h-auto -ml-20">
           <div className="flex flex-col border-gray-900 border">
             <h3
               className="mb-2 flex justify-between"
@@ -1074,7 +1206,7 @@ const Sales = () => {
 
             {/* Witness Details */}
             <div className="mb-1">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4">
                 <div className="flex">
                   <label
                     className="w-24"
@@ -1086,11 +1218,12 @@ const Sales = () => {
                   >
                     Witness
                   </label>
-                  <Input
+                  <HighlightInput
                     name="witness"
-                    value={currentSale.witness || ""}
+                    value={currentSale.witness}
                     onChange={handleInputChange}
                     className="flex-1 text-2xl"
+                    highlightQuery={searchQuery}
                   />
                 </div>
                 <div className="flex">
@@ -1104,11 +1237,12 @@ const Sales = () => {
                   >
                     Address
                   </label>
-                  <Input
+                  <HighlightTextarea
                     name="witnessAddress"
-                    value={currentSale.witnessAddress || ""}
-                    onChange={handleInputChange}
+                    value={currentSale.witnessAddress}
+                    onChange={handleTextArea}
                     className="flex-1 text-2xl"
+                    highlightQuery={searchQuery}
                   />
                 </div>
                 <div className="flex">
@@ -1122,11 +1256,12 @@ const Sales = () => {
                   >
                     Contact
                   </label>
-                  <Input
+                  <HighlightInput
                     name="witnessContact"
-                    value={currentSale.witnessContact || ""}
+                    value={currentSale.witnessContact}
                     onChange={handleInputChange}
                     className="flex-1 text-2xl"
+                    highlightQuery={searchQuery}
                   />
                 </div>
                 <div className="flex">
@@ -1140,11 +1275,12 @@ const Sales = () => {
                   >
                     Wit. 2
                   </label>
-                  <Input
+                  <HighlightInput
                     name="witnessName2"
-                    value={currentSale.witnessName2 || ""}
+                    value={currentSale.witnessName2}
                     onChange={handleInputChange}
                     className="flex-1 text-2xl"
+                    highlightQuery={searchQuery}
                   />
                 </div>
               </div>
@@ -1163,14 +1299,13 @@ const Sales = () => {
                 Remarks
               </h3>
               <div className="space-y-2 w-full">
-                <div className="flex flex-1 text-2xl">
-                  <Input
-                    name="remark"
-                    value={currentSale.remark || ""}
-                    onChange={handleInputChange}
-                    className="flex-1 text-2xl"
-                  />
-                </div>
+                <HighlightInput
+                  name="remark"
+                  value={currentSale.remark}
+                  onChange={handleInputChange}
+                  className="flex-1 text-2xl"
+                  highlightQuery={searchQuery}
+                />
               </div>
             </div>
 
@@ -1181,53 +1316,6 @@ const Sales = () => {
               accept="image/*"
               style={{ display: "none" }}
             />
-          </div>
-
-          {/* Second set of installments */}
-          <div className="grid grid-cols-2 gap-2 mt-4">
-            {currentSale.installments
-              .slice(10, 20)
-              .map((installment, index) => (
-                <div key={index} className="flex items-center gap-2">
-                  <div className="flex-1 text-2xl">
-                    <Input
-                      type="date"
-                      value={formatToInputDate(installment.date)}
-                      onChange={(e) =>
-                        handleInstallmentChange(
-                          index + 10,
-                          "date",
-                          e.target.value
-                        )
-                      }
-                      className="w-full h-8 text-2xl"
-                      disabled={!installment.enabled}
-                    />
-                  </div>
-                  <div className="flex-1 text-2xl">
-                    <Input
-                      type="number"
-                      value={installment.amount || ""}
-                      onChange={(e) =>
-                        handleInstallmentChange(
-                          index + 10,
-                          "amount",
-                          e.target.value
-                        )
-                      }
-                      className="w-full h-8 text-2xl"
-                      disabled={!installment.enabled}
-                    />
-                  </div>
-                  <Checkbox
-                    checked={installment.enabled}
-                    onCheckedChange={(checked) =>
-                      handleInstallmentChange(index + 10, "enabled", checked)
-                    }
-                    className="h-4 w-4"
-                  />
-                </div>
-              ))}
           </div>
         </div>
       </div>

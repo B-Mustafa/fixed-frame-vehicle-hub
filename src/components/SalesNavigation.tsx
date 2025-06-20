@@ -1,6 +1,7 @@
 import React from "react";
 import { Button } from "@/components/ui/button";
 import { FileDown, FileUp, Printer } from "lucide-react";
+import { useSalesData } from "@/hooks/useSalesData";
 
 interface SalesNavigationProps {
   sales: any[];
@@ -33,13 +34,16 @@ const SalesNavigation: React.FC<SalesNavigationProps> = ({
   handleSave,
   handlePrint,
   handleExportToExcel,
-  handleImportFromFile,
+  // handleImportFromFile,
   toggleSupabase,
   currentSale,
 }) => {
   // Ensure sales is always an array and currentIndex is valid
   const safeSales = Array.isArray(sales) ? sales : [];
   const safeCurrentIndex = Math.max(0, Math.min(currentIndex, safeSales.length - 1));
+
+const {handleImportFromFile} = useSalesData();
+  
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 sticky top-0 z-10">
